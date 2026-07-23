@@ -9,7 +9,7 @@ if str(root_dir) not in sys.path:
 import streamlit as st
 from src.crop_data import get_crop_options, load_crop_database, get_crop_mapping
 from src.garden_layout import BED_SECTIONS
-from src.crop_rules import check_companion_conflicts, check_nitrogen_demand
+from src.crop_rules import check_seasonality, check_nitrogen_rules
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Garden Planner", layout="wide")
@@ -63,8 +63,8 @@ for section_name, beds in BED_SECTIONS.items():
 st.divider()
 st.header("⚠️ Validation & Alerts")
 
-companion_alerts = check_companion_conflicts(garden_state, crops_df)
-nitrogen_alerts = check_nitrogen_demand(garden_state, crops_df)
+companion_alerts = check_seasonality(garden_state, crops_df)
+nitrogen_alerts = check_nitrogen_rules(garden_state, crops_df)
 
 all_alerts = companion_alerts + nitrogen_alerts
 
