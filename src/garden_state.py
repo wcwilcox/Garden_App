@@ -1,6 +1,28 @@
 import streamlit as st
 
 
+def save_garden_layout(
+    garden_state,
+    year,
+    season
+):
+    """
+    Saves the current garden layout into
+    Streamlit session state.
+
+    Each bed is stored using a unique key
+    based on year, season, and bed ID.
+    """
+
+    for bed_id, crop in garden_state.items():
+
+        state_key = (
+            f"{year}_{season}_{bed_id}"
+        )
+
+        st.session_state[state_key] = crop
+
+
 def get_previous_year_layout(
     garden_state,
     year,

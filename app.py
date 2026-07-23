@@ -39,6 +39,7 @@ from src.garden_ui import (
 )
 
 from src.garden_state import (
+    save_garden_layout,
     get_previous_year_layout
 )
 
@@ -83,6 +84,12 @@ garden_state = render_garden_grid(
     bed_sections=BED_SECTIONS,
     crop_options=crop_options,
     crop_map=crop_map,
+    year=year,
+    season=season
+)
+
+save_garden_layout(
+    garden_state=garden_state,
     year=year,
     season=season
 )
