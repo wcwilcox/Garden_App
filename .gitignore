@@ -1,0 +1,8 @@
+# Ignore temporary Excel lock files
+~$*
+~$*.xlsx
+*.tmp
+
+# Ignore Python cache folders
+__pycache__/
+*.pyc
