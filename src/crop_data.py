@@ -1,19 +1,20 @@
+from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-EXCEL_PATH = "data/Garden_Planning.xlsx"
+# Dynamically resolve project root: src/crop_data.py -> src/ -> root/
+ROOT_DIR = Path(__file__).resolve().parent.parent
+EXCEL_PATH = ROOT_DIR / "data" / "Garden_Planning.xlsx"
 
 @st.cache_data
 def load_crop_database():
     """Loads the Master Garden Calendar from Excel."""
     try:
-        # Update sheet_name if needed to match your tab
-        df = pd.read_excel(EXCEL_PATH, sheet_name=0) 
-        # Clean column names (strip trailing spaces)
+        df = pd.read_excel(EXCEL_PATH, sheet_name=0)
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
-        st.error(f"Error loading Excel file: {e}")
+        st.error(f"Error loading Excel file from {EXCEL_PATH}: {e}")
         return pd.DataFrame()
 
 def get_crop_mapping():
