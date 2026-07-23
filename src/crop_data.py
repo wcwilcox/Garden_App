@@ -6,10 +6,15 @@ import streamlit as st
 ROOT_DIR = Path(__file__).resolve().parent.parent
 EXCEL_PATH = ROOT_DIR / "data" / "Garden_Planning.xlsx"
 
+# src/crop_data.py
 @st.cache_data
 def load_crop_database():
+    """Loads the Master Garden Calendar from Excel."""
     try:
-        df = pd.read_excel(EXCEL_PATH, sheet_name=0)
+        # Change header=1 to match the actual header row index in Excel (0-indexed)
+        df = pd.read_excel(EXCEL_PATH, sheet_name=0, header=1)
+        
+        # Clean column names
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:

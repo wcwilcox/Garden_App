@@ -6,12 +6,28 @@ def check_nitrogen_rules(current_layout, crops_df, past_layout=None):
     crop was planted in the previous year.
     """
     alerts = []
-    if past_layout is None:
-        return alerts  # Skip check if no past layout is loaded
-        
-    # Identify all high nitrogen abbreviations from Excel
-    high_n_crops = crops_df[crops_df["Nitrogen Level"] == "High"]["Abrv"].tolist()
-    
+    if past_layout is None or crops_df.empty:
+        return alerts  # Skip check if no past layout or empty dataframe
+
+    # Clean up column names (strips whitespace)
+    crops_df.columns = crops_df.columns.str.strip()
+
+    # Look for the nitrogen column (handles 'Nitrogen Level', 'Nitrogen', etc.)
+    nitro_col = None
+    for col in crops_df.columns:
+        if "nitrogen" in col.lower():
+            nitro_col = col
+            break
+
+    if not nitro_col:
+        # If no nitrogen column exists in Excel, return without crashing
+        return alerts
+
+    # Filter high nitrogen crops (case-insensitive check for 'High')
+    high_n_crops = crops_df[
+        crops_df[nitro_col].astype(str).str.strip().str.lower() == "high"
+    ]["Abrv"].tolist()
+
     for bed_id, current_abrv in current_layout.items():
         if current_abrv in high_n_crops:
             past_abrv = past_layout.get(bed_id)
@@ -20,6 +36,7 @@ def check_nitrogen_rules(current_layout, crops_df, past_layout=None):
                     f"⚠️ **Crop Rotation Warning in {bed_id}:** "
                     f"Consecutive High Nitrogen crops ({past_abrv} last year → {current_abrv} this year)."
                 )
+
     return alerts
 
 
