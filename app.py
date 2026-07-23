@@ -123,28 +123,6 @@ past_garden_state = get_previous_year_layout(
 
 
 # ---------------------------------------------------------
-# SAVE CURRENT GARDEN STATE
-# ---------------------------------------------------------
-
-save_garden_layout(
-    garden_state=garden_state,
-    year=year,
-    season=season
-)
-
-
-# ---------------------------------------------------------
-# HISTORICAL STATE
-# ---------------------------------------------------------
-
-from src.garden_state import (
-    save_garden_layout,
-    get_garden_layout,
-    get_previous_year_layout
-)
-
-
-# ---------------------------------------------------------
 # VALIDATION & ALERTS
 # ---------------------------------------------------------
 
@@ -155,7 +133,10 @@ st.header(
 )
 
 
-# Run seasonality checks
+# ---------------------------------------------------------
+# SEASONALITY CHECK
+# ---------------------------------------------------------
+
 seasonality_alerts = check_seasonality(
     garden_state,
     season,
@@ -163,7 +144,10 @@ seasonality_alerts = check_seasonality(
 )
 
 
-# Run nitrogen rotation checks
+# ---------------------------------------------------------
+# NITROGEN ROTATION CHECK
+# ---------------------------------------------------------
+
 nitrogen_alerts = check_nitrogen_rules(
     garden_state,
     crops_df,
@@ -171,7 +155,10 @@ nitrogen_alerts = check_nitrogen_rules(
 )
 
 
-# Combine all alerts
+# ---------------------------------------------------------
+# COMBINE ALERTS
+# ---------------------------------------------------------
+
 all_alerts = (
     seasonality_alerts
     + nitrogen_alerts

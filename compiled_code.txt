@@ -47,6 +47,8 @@ from src.garden_ui import (
 )
 
 from src.garden_state import (
+    save_garden_layout,
+    get_garden_layout,
     get_previous_year_layout
 )
 
@@ -84,6 +86,16 @@ year, season = render_sidebar()
 
 
 # ---------------------------------------------------------
+# LOAD SAVED GARDEN LAYOUT
+# ---------------------------------------------------------
+
+saved_layout = get_garden_layout(
+    year=year,
+    season=season
+)
+
+
+# ---------------------------------------------------------
 # GARDEN GRID
 # ---------------------------------------------------------
 
@@ -91,6 +103,18 @@ garden_state = render_garden_grid(
     bed_sections=BED_SECTIONS,
     crop_options=crop_options,
     crop_map=crop_map,
+    year=year,
+    season=season,
+    saved_layout=saved_layout
+)
+
+
+# ---------------------------------------------------------
+# SAVE CURRENT GARDEN STATE
+# ---------------------------------------------------------
+
+save_garden_layout(
+    garden_state=garden_state,
     year=year,
     season=season
 )
@@ -101,9 +125,30 @@ garden_state = render_garden_grid(
 # ---------------------------------------------------------
 
 past_garden_state = get_previous_year_layout(
+    year=year,
+    season=season
+)
+
+
+# ---------------------------------------------------------
+# SAVE CURRENT GARDEN STATE
+# ---------------------------------------------------------
+
+save_garden_layout(
     garden_state=garden_state,
     year=year,
     season=season
+)
+
+
+# ---------------------------------------------------------
+# HISTORICAL STATE
+# ---------------------------------------------------------
+
+from src.garden_state import (
+    save_garden_layout,
+    get_garden_layout,
+    get_previous_year_layout
 )
 
 
@@ -216,10 +261,31 @@ def get_crop_mapping():
     return {}
 
 def get_crop_options():
-    """Returns list of abbreviations for selectbox dropdowns."""
+    """
+    Returns a sorted list of crop abbreviations
+    for the garden selection dropdowns.
+    """
+
     df = load_crop_database()
-    if not df.empty and "Abrv" in df.columns:
-        return ["Empty"] + sorted(df["Abrv"].dropna().astype(str).tolist())
+
+    if (
+        not df.empty
+        and "Abrv" in df.columns
+    ):
+
+        abbreviations = (
+            df["Abrv"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .unique()
+            .tolist()
+        )
+
+        return [
+            "Empty"
+        ] + sorted(abbreviations)
+
     return ["Empty"]
 
 
@@ -229,57 +295,95 @@ FILE: src\crop_rules.py
 
 # src/crop_rules.py
 
-def check_nitrogen_rules(current_layout, crops_df, past_layout=None):
+def check_nitrogen_rules(
+    current_layout,
+    crops_df,
+    past_layout=None
+):
     """
-    Checks if a High Nitrogen crop is planted where another High Nitrogen 
-    crop was planted in the previous year.
+    Checks if a High Nitrogen crop is planted in a bed
+    where a High Nitrogen crop was planted the previous year.
     """
+
     alerts = []
-    if past_layout is None or crops_df.empty:
-        return alerts  # Skip check if no past layout or empty dataframe
 
-    # Clean up column names (strips whitespace)
-    crops_df.columns = crops_df.columns.str.strip()
+    # No historical layout or crop data
+    if (
+        past_layout is None
+        or crops_df.empty
+    ):
+        return alerts
 
-    # Look for the nitrogen column (handles 'Nitrogen Level', 'Nitrogen', etc.)
+    # Clean column names
+    crops_df.columns = (
+        crops_df.columns.str.strip()
+    )
+
+    # Find nitrogen-related column
     nitro_col = None
+
     for col in crops_df.columns:
+
         if "nitrogen" in col.lower():
+
             nitro_col = col
             break
 
+    # No nitrogen column found
     if not nitro_col:
-        # If no nitrogen column exists in Excel, return without crashing
         return alerts
 
-    # Filter high nitrogen crops (case-insensitive check for 'High')
-    high_n_crops = crops_df[
-        crops_df[nitro_col].astype(str).str.strip().str.lower() == "high"
-    ]["Abrv"].tolist()
+    # Get all High Nitrogen crops
+    high_n_crops = set(
+        crops_df[
+            crops_df[nitro_col]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            == "high"
+        ]["Abrv"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
 
+    # Compare current year against previous year
     for bed_id, current_abrv in current_layout.items():
 
+        # Ignore empty current beds
         if (
-            current_abrv == "Empty"
-            or not current_abrv
+            not current_abrv
+            or current_abrv == "Empty"
         ):
             continue
 
-        past_abrv = past_layout.get(bed_id)
+        # Get previous year's crop
+        past_abrv = past_layout.get(
+            bed_id,
+            "Empty"
+        )
 
+        # Ignore empty previous beds
         if (
-            past_abrv
-            and past_abrv != "Empty"
+            not past_abrv
+            or past_abrv == "Empty"
+        ):
+            continue
+
+        # Check BOTH crops
+        if (
+            current_abrv in high_n_crops
             and past_abrv in high_n_crops
         ):
-            if past_abrv in high_n_crops:
-                alerts.append(
-                    f"⚠️ **Crop Rotation Warning in {bed_id}:** "
-                    f"Consecutive High Nitrogen crops ({past_abrv} last year → {current_abrv} this year)."
-                )
+
+            alerts.append(
+                f"⚠️ **Crop Rotation Warning in {bed_id}:** "
+                f"Consecutive High Nitrogen crops "
+                f"({past_abrv} last year → "
+                f"{current_abrv} this year)."
+            )
 
     return alerts
-
 
 
 def check_seasonality(current_layout, selected_season, crops_df):
@@ -336,19 +440,92 @@ FILE: src\garden_state.py
 import streamlit as st
 
 
-def get_previous_year_layout(
+def initialize_garden_history():
+    """
+    Initializes the garden history dictionary
+    in Streamlit session state.
+    """
+
+    if "garden_history" not in st.session_state:
+
+        st.session_state.garden_history = {}
+
+
+def save_garden_layout(
     garden_state,
     year,
     season
 ):
     """
-    Retrieves the previous year's garden layout
-    from Streamlit session state.
+    Saves the current garden layout for
+    the selected year and season.
 
     Args:
-        garden_state: Current garden layout.
-        year: Current selected year.
-        season: Current selected season.
+        garden_state: Dictionary mapping bed IDs
+                      to crop abbreviations.
+        year: Selected garden year.
+        season: Selected garden season.
+    """
+
+    # Make sure history exists
+    initialize_garden_history()
+
+    # Create unique history key
+    history_key = (
+        f"{year}_{season}"
+    )
+
+    # Save a copy of the layout
+    st.session_state.garden_history[
+        history_key
+    ] = garden_state.copy()
+
+
+def get_garden_layout(
+    year,
+    season
+):
+    """
+    Retrieves a saved garden layout
+    for a specific year and season.
+
+    Returns:
+        dict: Saved garden layout.
+
+        Returns an empty dictionary if
+        no layout has been saved.
+    """
+
+    # Make sure history exists
+    initialize_garden_history()
+
+    # Create lookup key
+    history_key = (
+        f"{year}_{season}"
+    )
+
+    # Retrieve saved layout
+    return st.session_state.garden_history.get(
+        history_key,
+        {}
+    ).copy()
+
+
+def get_previous_year_layout(
+    year,
+    season
+):
+    """
+    Retrieves the garden layout from
+    the previous year for the same season.
+
+    Example:
+
+        Current:
+        2026 Spring
+
+        Previous:
+        2025 Spring
 
     Returns:
         dict: Previous year's garden layout.
@@ -356,22 +533,10 @@ def get_previous_year_layout(
 
     previous_year = year - 1
 
-    past_garden_state = {}
-
-    for bed_id in garden_state:
-
-        past_key = (
-            f"{previous_year}_{season}_{bed_id}"
-        )
-
-        past_garden_state[bed_id] = (
-            st.session_state.get(
-                past_key,
-                "Empty"
-            )
-        )
-
-    return past_garden_state
+    return get_garden_layout(
+        year=previous_year,
+        season=season
+    )
 
 
 
@@ -422,29 +587,68 @@ def render_garden_grid(
     crop_options,
     crop_map,
     year,
-    season
+    season,
+    saved_layout=None
 ):
     """
     Renders the garden bed selection grid.
 
     Args:
-        bed_sections: Dictionary containing garden sections and bed IDs.
-        crop_options: List of crop abbreviations available for selection.
-        crop_map: Dictionary mapping crop abbreviations to full crop names.
-        year: Selected garden year.
-        season: Selected garden season.
+        bed_sections:
+            Dictionary containing garden sections
+            and bed IDs.
+
+        crop_options:
+            List of crop abbreviations available
+            for selection.
+
+        crop_map:
+            Dictionary mapping crop abbreviations
+            to full crop names.
+
+        year:
+            Selected garden year.
+
+        season:
+            Selected garden season.
+
+        saved_layout:
+            Previously saved garden layout for
+            the selected year and season.
 
     Returns:
-        dict: Mapping of bed IDs to selected crop abbreviations.
+        dict:
+            Mapping of bed IDs to selected
+            crop abbreviations.
     """
+
+    # Use empty dictionary if no saved layout exists
+    if saved_layout is None:
+
+        saved_layout = {}
+
 
     garden_state = {}
 
+
+    # ---------------------------------------------------------
+    # RENDER GARDEN SECTIONS
+    # ---------------------------------------------------------
+
     for section_name, beds in bed_sections.items():
 
-        st.subheader(section_name)
+        st.subheader(
+            section_name
+        )
 
-        cols = st.columns(len(beds))
+        cols = st.columns(
+            len(beds)
+        )
+
+
+        # -----------------------------------------------------
+        # RENDER INDIVIDUAL BEDS
+        # -----------------------------------------------------
 
         for idx, bed_id in enumerate(beds):
 
@@ -455,18 +659,60 @@ def render_garden_grid(
                     f"**{bed_id}**"
                 )
 
-                # Crop selection
+
+                # -------------------------------------------------
+                # DETERMINE SAVED CROP
+                # -------------------------------------------------
+
+                saved_crop = saved_layout.get(
+                    bed_id,
+                    "Empty"
+                )
+
+
+                # -------------------------------------------------
+                # DETERMINE DROPDOWN INDEX
+                # -------------------------------------------------
+
+                if saved_crop in crop_options:
+
+                    default_index = (
+                        crop_options.index(
+                            saved_crop
+                        )
+                    )
+
+                else:
+
+                    default_index = 0
+
+
+                # -------------------------------------------------
+                # CROP SELECTION
+                # -------------------------------------------------
+
                 selected_crop = st.selectbox(
                     label=bed_id,
                     options=crop_options,
+                    index=default_index,
                     key=f"{year}_{season}_{bed_id}",
                     label_visibility="collapsed"
                 )
 
-                # Save selected crop
-                garden_state[bed_id] = selected_crop
 
-                # Display full crop name
+                # -------------------------------------------------
+                # SAVE CURRENT SELECTION
+                # -------------------------------------------------
+
+                garden_state[bed_id] = (
+                    selected_crop
+                )
+
+
+                # -------------------------------------------------
+                # DISPLAY FULL CROP NAME
+                # -------------------------------------------------
+
                 if (
                     selected_crop
                     and selected_crop != "Empty"
@@ -487,6 +733,6 @@ def render_garden_grid(
                         "⚪ *Empty*"
                     )
 
-    return garden_state
 
+    return garden_state
 
