@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+# Fix import path for local and Streamlit Cloud environments
+root_dir = Path(__file__).resolve().parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
 import streamlit as st
 from src.crop_data import get_crop_options, load_crop_database, get_crop_mapping
 from src.garden_layout import BED_SECTIONS
