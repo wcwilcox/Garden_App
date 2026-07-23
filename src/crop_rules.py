@@ -1,44 +1,94 @@
 # src/crop_rules.py
 
-def check_nitrogen_rules(current_layout, crops_df, past_layout=None):
+def check_nitrogen_rules(
+    current_layout,
+    crops_df,
+    past_layout=None
+):
     """
-    Checks if a High Nitrogen crop is planted where another High Nitrogen 
-    crop was planted in the previous year.
+    Checks if a High Nitrogen crop is planted in a bed
+    where a High Nitrogen crop was planted the previous year.
     """
+
     alerts = []
-    if past_layout is None or crops_df.empty:
-        return alerts  # Skip check if no past layout or empty dataframe
 
-    # Clean up column names (strips whitespace)
-    crops_df.columns = crops_df.columns.str.strip()
+    # No historical layout or crop data
+    if (
+        past_layout is None
+        or crops_df.empty
+    ):
+        return alerts
 
-    # Look for the nitrogen column (handles 'Nitrogen Level', 'Nitrogen', etc.)
+    # Clean column names
+    crops_df.columns = (
+        crops_df.columns.str.strip()
+    )
+
+    # Find nitrogen-related column
     nitro_col = None
+
     for col in crops_df.columns:
+
         if "nitrogen" in col.lower():
+
             nitro_col = col
             break
 
+    # No nitrogen column found
     if not nitro_col:
-        # If no nitrogen column exists in Excel, return without crashing
         return alerts
 
-    # Filter high nitrogen crops (case-insensitive check for 'High')
-    high_n_crops = crops_df[
-        crops_df[nitro_col].astype(str).str.strip().str.lower() == "high"
-    ]["Abrv"].tolist()
+    # Get all High Nitrogen crops
+    high_n_crops = set(
+        crops_df[
+            crops_df[nitro_col]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            == "high"
+        ]["Abrv"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
 
+    # Compare current year against previous year
     for bed_id, current_abrv in current_layout.items():
-        if current_abrv in high_n_crops:
-            past_abrv = past_layout.get(bed_id)
-            if past_abrv in high_n_crops:
-                alerts.append(
-                    f"⚠️ **Crop Rotation Warning in {bed_id}:** "
-                    f"Consecutive High Nitrogen crops ({past_abrv} last year → {current_abrv} this year)."
-                )
+
+        # Ignore empty current beds
+        if (
+            not current_abrv
+            or current_abrv == "Empty"
+        ):
+            continue
+
+        # Get previous year's crop
+        past_abrv = past_layout.get(
+            bed_id,
+            "Empty"
+        )
+
+        # Ignore empty previous beds
+        if (
+            not past_abrv
+            or past_abrv == "Empty"
+        ):
+            continue
+
+        # Check BOTH crops
+        if (
+            current_abrv in high_n_crops
+            and past_abrv in high_n_crops
+        ):
+
+            alerts.append(
+                f"⚠️ **Crop Rotation Warning in {bed_id}:** "
+                f"Consecutive High Nitrogen crops "
+                f"({past_abrv} last year → "
+                f"{current_abrv} this year)."
+            )
 
     return alerts
-
 
 
 def check_seasonality(current_layout, selected_season, crops_df):

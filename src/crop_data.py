@@ -28,12 +28,42 @@ def get_crop_mapping():
     """
     df = load_crop_database()
     if not df.empty and "Abrv" in df.columns:
-        return dict(zip(df["Abrv"], df["Crop Name"]))
+        clean_df = df.dropna(
+            subset=["Abrv", "Crop Name"]
+        )
+
+        return dict(
+            zip(
+                clean_df["Abrv"].astype(str).str.strip(),
+                clean_df["Crop Name"].astype(str).str.strip()
+            )
+        )
     return {}
 
 def get_crop_options():
-    """Returns list of abbreviations for selectbox dropdowns."""
+    """
+    Returns a sorted list of crop abbreviations
+    for the garden selection dropdowns.
+    """
+
     df = load_crop_database()
-    if not df.empty and "Abrv" in df.columns:
-        return ["Empty"] + sorted(df["Abrv"].dropna().astype(str).tolist())
+
+    if (
+        not df.empty
+        and "Abrv" in df.columns
+    ):
+
+        abbreviations = (
+            df["Abrv"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .unique()
+            .tolist()
+        )
+
+        return [
+            "Empty"
+        ] + sorted(abbreviations)
+
     return ["Empty"]

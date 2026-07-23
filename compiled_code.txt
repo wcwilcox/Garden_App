@@ -1,0 +1,492 @@
+GARDEN APP - COMPILED PYTHON SOURCE CODE
+================================================================================
+
+
+================================================================================
+FILE: app.py
+================================================================================
+
+import sys
+from pathlib import Path
+
+
+# ---------------------------------------------------------
+# PROJECT PATH
+# ---------------------------------------------------------
+
+root_dir = Path(__file__).resolve().parent
+
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+
+# ---------------------------------------------------------
+# IMPORTS
+# ---------------------------------------------------------
+
+import streamlit as st
+
+from src.crop_data import (
+    get_crop_options,
+    load_crop_database,
+    get_crop_mapping
+)
+
+from src.garden_layout import (
+    BED_SECTIONS
+)
+
+from src.crop_rules import (
+    check_seasonality,
+    check_nitrogen_rules
+)
+
+from src.garden_ui import (
+    render_sidebar,
+    render_garden_grid
+)
+
+from src.garden_state import (
+    get_previous_year_layout
+)
+
+
+# ---------------------------------------------------------
+# PAGE SETUP
+# ---------------------------------------------------------
+
+st.set_page_config(
+    page_title="Garden Planner",
+    layout="wide"
+)
+
+st.title(
+    "🌱 Personal Garden Planner"
+)
+
+
+# ---------------------------------------------------------
+# LOAD CROP DATA
+# ---------------------------------------------------------
+
+crops_df = load_crop_database()
+
+crop_options = get_crop_options()
+
+crop_map = get_crop_mapping()
+
+
+# ---------------------------------------------------------
+# SIDEBAR NAVIGATION
+# ---------------------------------------------------------
+
+year, season = render_sidebar()
+
+
+# ---------------------------------------------------------
+# GARDEN GRID
+# ---------------------------------------------------------
+
+garden_state = render_garden_grid(
+    bed_sections=BED_SECTIONS,
+    crop_options=crop_options,
+    crop_map=crop_map,
+    year=year,
+    season=season
+)
+
+
+# ---------------------------------------------------------
+# HISTORICAL STATE
+# ---------------------------------------------------------
+
+past_garden_state = get_previous_year_layout(
+    garden_state=garden_state,
+    year=year,
+    season=season
+)
+
+
+# ---------------------------------------------------------
+# VALIDATION & ALERTS
+# ---------------------------------------------------------
+
+st.divider()
+
+st.header(
+    "⚠️ Validation & Alerts"
+)
+
+
+# Run seasonality checks
+seasonality_alerts = check_seasonality(
+    garden_state,
+    season,
+    crops_df
+)
+
+
+# Run nitrogen rotation checks
+nitrogen_alerts = check_nitrogen_rules(
+    garden_state,
+    crops_df,
+    past_layout=past_garden_state
+)
+
+
+# Combine all alerts
+all_alerts = (
+    seasonality_alerts
+    + nitrogen_alerts
+)
+
+
+# ---------------------------------------------------------
+# DISPLAY ALERTS
+# ---------------------------------------------------------
+
+if all_alerts:
+
+    for alert in all_alerts:
+
+        st.warning(
+            alert
+        )
+
+else:
+
+    st.success(
+        "✅ No plant conflicts detected "
+        "in current layout!"
+    )
+
+
+
+================================================================================
+FILE: src\__init__.py
+================================================================================
+
+
+
+
+================================================================================
+FILE: src\crop_data.py
+================================================================================
+
+from pathlib import Path
+import pandas as pd
+import streamlit as st
+
+# Path relative to src/crop_data.py -> project root -> data / Garden_Planning.xlsx
+ROOT_DIR = Path(__file__).resolve().parent.parent
+EXCEL_PATH = ROOT_DIR / "data" / "Garden_Planning.xlsx"
+
+# src/crop_data.py
+@st.cache_data
+def load_crop_database():
+    """Loads the Master Garden Calendar from Excel."""
+    try:
+        # Change header=1 to match the actual header row index in Excel (0-indexed)
+        df = pd.read_excel(EXCEL_PATH, sheet_name=0, header=1)
+        
+        # Clean column names
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception as e:
+        st.error(f"Error loading Excel file from {EXCEL_PATH}: {e}")
+        return pd.DataFrame()
+
+def get_crop_mapping():
+    """
+    Returns a dictionary mapping Abbreviations -> Full Crop Names
+    e.g., {'Pk': 'Pumpkin', 'Br': 'Broccoli', ...}
+    """
+    df = load_crop_database()
+    if not df.empty and "Abrv" in df.columns:
+        clean_df = df.dropna(
+            subset=["Abrv", "Crop Name"]
+        )
+
+        return dict(
+            zip(
+                clean_df["Abrv"].astype(str).str.strip(),
+                clean_df["Crop Name"].astype(str).str.strip()
+            )
+        )
+    return {}
+
+def get_crop_options():
+    """Returns list of abbreviations for selectbox dropdowns."""
+    df = load_crop_database()
+    if not df.empty and "Abrv" in df.columns:
+        return ["Empty"] + sorted(df["Abrv"].dropna().astype(str).tolist())
+    return ["Empty"]
+
+
+================================================================================
+FILE: src\crop_rules.py
+================================================================================
+
+# src/crop_rules.py
+
+def check_nitrogen_rules(current_layout, crops_df, past_layout=None):
+    """
+    Checks if a High Nitrogen crop is planted where another High Nitrogen 
+    crop was planted in the previous year.
+    """
+    alerts = []
+    if past_layout is None or crops_df.empty:
+        return alerts  # Skip check if no past layout or empty dataframe
+
+    # Clean up column names (strips whitespace)
+    crops_df.columns = crops_df.columns.str.strip()
+
+    # Look for the nitrogen column (handles 'Nitrogen Level', 'Nitrogen', etc.)
+    nitro_col = None
+    for col in crops_df.columns:
+        if "nitrogen" in col.lower():
+            nitro_col = col
+            break
+
+    if not nitro_col:
+        # If no nitrogen column exists in Excel, return without crashing
+        return alerts
+
+    # Filter high nitrogen crops (case-insensitive check for 'High')
+    high_n_crops = crops_df[
+        crops_df[nitro_col].astype(str).str.strip().str.lower() == "high"
+    ]["Abrv"].tolist()
+
+    for bed_id, current_abrv in current_layout.items():
+
+        if (
+            current_abrv == "Empty"
+            or not current_abrv
+        ):
+            continue
+
+        past_abrv = past_layout.get(bed_id)
+
+        if (
+            past_abrv
+            and past_abrv != "Empty"
+            and past_abrv in high_n_crops
+        ):
+            if past_abrv in high_n_crops:
+                alerts.append(
+                    f"⚠️ **Crop Rotation Warning in {bed_id}:** "
+                    f"Consecutive High Nitrogen crops ({past_abrv} last year → {current_abrv} this year)."
+                )
+
+    return alerts
+
+
+
+def check_seasonality(current_layout, selected_season, crops_df):
+    """
+    Warns if a crop is placed in a season it doesn't support according to 'Grow Season'.
+    """
+    alerts = []
+    
+    for bed_id, abrv in current_layout.items():
+        if abrv == "Empty" or not abrv:
+            continue
+            
+        crop_row = crops_df[crops_df["Abrv"] == abrv]
+        if not crop_row.empty:
+            valid_seasons = str(crop_row["Grow Season"].values[0])
+            
+            # Check if selected season is within the crop's allowed seasons
+            if selected_season not in valid_seasons and "Perennial" not in valid_seasons and "Full Season" not in valid_seasons:
+                alerts.append(
+                    f"📅 **Seasonality Alert in {bed_id}:** {abrv} typically grows in "
+                    f"'{valid_seasons}', but current layout is set to '{selected_season}'."
+                )
+    return alerts
+
+
+================================================================================
+FILE: src\garden_layout.py
+================================================================================
+
+# Map beds to their visual sections
+BED_SECTIONS = {
+    "Back Rows": ["BR1", "BR2", "BR3", "BR4"],
+    "Raised Beds": ["RB1", "RB2", "RB3"],
+    "Front Rows": ["FR1", "FR2", "FR3", "FR4"],
+    "Special Plots": ["DRB", "Tower_1", "Tower_2", "T1", "T2"]
+}
+
+# Define physical neighbors for spatial rule checks
+BED_NEIGHBORS = {
+    "FR1": ["FR2", "DRB"],
+    "FR2": ["FR1", "FR3", "Tree"],
+    "FR3": ["FR2", "FR4"],
+    "BR1": ["BR2"],
+    "BR2": ["BR1", "BR3"],
+    "BR3": ["BR2", "BR4"],
+    # Add remaining bed connections...
+}
+
+
+================================================================================
+FILE: src\garden_state.py
+================================================================================
+
+import streamlit as st
+
+
+def get_previous_year_layout(
+    garden_state,
+    year,
+    season
+):
+    """
+    Retrieves the previous year's garden layout
+    from Streamlit session state.
+
+    Args:
+        garden_state: Current garden layout.
+        year: Current selected year.
+        season: Current selected season.
+
+    Returns:
+        dict: Previous year's garden layout.
+    """
+
+    previous_year = year - 1
+
+    past_garden_state = {}
+
+    for bed_id in garden_state:
+
+        past_key = (
+            f"{previous_year}_{season}_{bed_id}"
+        )
+
+        past_garden_state[bed_id] = (
+            st.session_state.get(
+                past_key,
+                "Empty"
+            )
+        )
+
+    return past_garden_state
+
+
+
+================================================================================
+FILE: src\garden_ui.py
+================================================================================
+
+import streamlit as st
+
+
+def render_sidebar():
+    """
+    Renders the sidebar navigation controls.
+
+    Returns:
+        tuple: Selected year and season.
+    """
+
+    st.sidebar.header(
+        "Navigation & History"
+    )
+
+    year = st.sidebar.selectbox(
+        "Year",
+        [2026, 2025, 2024]
+    )
+
+    season = st.sidebar.selectbox(
+        "Season",
+        [
+            "Spring",
+            "Summer",
+            "Fall"
+        ]
+    )
+
+    st.sidebar.divider()
+
+    st.sidebar.info(
+        f"Viewing: **{season} {year}**"
+    )
+
+    return year, season
+
+
+def render_garden_grid(
+    bed_sections,
+    crop_options,
+    crop_map,
+    year,
+    season
+):
+    """
+    Renders the garden bed selection grid.
+
+    Args:
+        bed_sections: Dictionary containing garden sections and bed IDs.
+        crop_options: List of crop abbreviations available for selection.
+        crop_map: Dictionary mapping crop abbreviations to full crop names.
+        year: Selected garden year.
+        season: Selected garden season.
+
+    Returns:
+        dict: Mapping of bed IDs to selected crop abbreviations.
+    """
+
+    garden_state = {}
+
+    for section_name, beds in bed_sections.items():
+
+        st.subheader(section_name)
+
+        cols = st.columns(len(beds))
+
+        for idx, bed_id in enumerate(beds):
+
+            with cols[idx]:
+
+                # Bed title
+                st.caption(
+                    f"**{bed_id}**"
+                )
+
+                # Crop selection
+                selected_crop = st.selectbox(
+                    label=bed_id,
+                    options=crop_options,
+                    key=f"{year}_{season}_{bed_id}",
+                    label_visibility="collapsed"
+                )
+
+                # Save selected crop
+                garden_state[bed_id] = selected_crop
+
+                # Display full crop name
+                if (
+                    selected_crop
+                    and selected_crop != "Empty"
+                ):
+
+                    full_name = crop_map.get(
+                        selected_crop,
+                        "Unknown Crop"
+                    )
+
+                    st.caption(
+                        f"🌿 *{full_name}*"
+                    )
+
+                else:
+
+                    st.caption(
+                        "⚪ *Empty*"
+                    )
+
+    return garden_state
+
+
