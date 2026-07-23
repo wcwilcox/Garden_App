@@ -1,66 +1,67 @@
 import streamlit as st
-import pandas as pd
+from src.crop_data import get_crop_options, load_crop_database, get_crop_mapping
+from src.garden_layout import BED_SECTIONS
+from src.crop_rules import check_companion_conflicts, check_nitrogen_demand
 
+# --- PAGE SETUP ---
+st.set_page_config(page_title="Garden Planner", layout="wide")
 st.title("🌱 Personal Garden Planner")
 
-# --- 1. LOAD YOUR EXCEL DATA ---
-@st.cache_data
-def load_data():
-    # Load crop database (sheet 1)
-    crops_df = pd.read_excel("Garden_Planning.xlsx", sheet_name="CropDatabase")
-    return crops_df
+# --- LOAD DATA & MAPPINGS ---
+crops_df = load_crop_database()
+crop_options = get_crop_options()
+crop_map = get_crop_mapping()
 
-try:
-    crops_df = load_data()
-    crop_options = ["Empty"] + crops_df["Abbreviation"].tolist()
-except Exception:
-    # Fallback dummy data if file isn't connected yet
-    crop_options = ["Empty", "TOM", "CRN", "BEA", "SQU"]
-    crops_df = pd.DataFrame({
-        "Abbreviation": ["TOM", "CRN", "BEA", "SQU"],
-        "Name": ["Tomato", "Corn", "Beans", "Squash"],
-        "Nitrogen": ["High", "High", "Fixer", "Medium"]
-    })
+# --- SIDEBAR: NAVIGATION & HISTORY ---
+st.sidebar.header("Navigation & History")
+year = st.sidebar.selectbox("Year", [2026, 2025, 2024])
+season = st.sidebar.selectbox("Season", ["Spring", "Summer", "Fall"])
 
-# --- 2. SELECT YEAR & SEASON ---
-col_year, col_season = st.columns(2)
-with col_year:
-    year = st.selectbox("Year", [2026, 2025, 2024])
-with col_season:
-    season = st.selectbox("Season", ["Spring", "Summer", "Fall"])
+st.sidebar.divider()
+st.sidebar.info(f"Viewing: **{season} {year}**")
 
+# --- GARDEN GRID RENDERER ---
+# State dictionary to hold current selections for rule validation
+garden_state = {}
+
+for section_name, beds in BED_SECTIONS.items():
+    st.subheader(section_name)
+    cols = st.columns(len(beds))
+    
+    for idx, bed_id in enumerate(beds):
+        with cols[idx]:
+            # Bed Title
+            st.caption(f"**{bed_id}**")
+            
+            # Crop Selection Dropdown
+            selected_crop = st.selectbox(
+                label=bed_id,
+                options=crop_options,
+                key=f"{year}_{season}_{bed_id}",
+                label_visibility="collapsed"
+            )
+            
+            # Save to state dictionary
+            garden_state[bed_id] = selected_crop
+            
+            # Dynamic Tooltip: Displays full crop name under each box when selected
+            if selected_crop and selected_crop != "Empty":
+                full_name = crop_map.get(selected_crop, "Unknown Crop")
+                st.caption(f"🌿 *{full_name}*")
+            else:
+                st.caption("⚪ *Empty*")
+
+# --- VALIDATION & ALERTS SECTION ---
 st.divider()
+st.header("⚠️ Validation & Alerts")
 
-# --- 3. GARDEN GRID SELECTION ---
-st.subheader(f"Garden Layout: {season} {year}")
+companion_alerts = check_companion_conflicts(garden_state, crops_df)
+nitrogen_alerts = check_nitrogen_demand(garden_state, crops_df)
 
-# Set up a 2x2 grid using Streamlit columns
-grid_data = {}
-cols_row1 = st.columns(2)
-cols_row2 = st.columns(2)
+all_alerts = companion_alerts + nitrogen_alerts
 
-with cols_row1[0]:
-    grid_data["A1"] = st.selectbox("Plot A1", crop_options, key="A1")
-with cols_row1[1]:
-    grid_data["B1"] = st.selectbox("Plot B1", crop_options, key="B1")
-
-with cols_row2[0]:
-    grid_data["A2"] = st.selectbox("Plot A2", crop_options, key="A2")
-with cols_row2[1]:
-    grid_data["B2"] = st.selectbox("Plot B2", crop_options, key="B2")
-
-# --- 4. SIMPLE RULE CHECKS ---
-st.divider()
-st.subheader("⚠️ Rule Checks & Alerts")
-
-# Example Check 1: High Nitrogen Conflict in Same Cell
-# (In a full app, you would compare current year vs last year's data)
-high_n_crops = crops_df[crops_df["Nitrogen"] == "High"]["Abbreviation"].tolist()
-
-for cell, crop in grid_data.items():
-    if crop in high_n_crops:
-        st.warning(f"**{cell}**: {crop} is a **High Nitrogen** consumer. Ensure crop rotation for next season!")
-
-# Example Check 2: Companion Plant Rule
-if grid_data["A1"] == "TOM" and grid_data["B1"] == "CRN":
-    st.error("**Companion Warning!** Tomatoes and Corn in adjacent plots (A1 & B1) can attract the same pests.")
+if all_alerts:
+    for alert in all_alerts:
+        st.warning(alert)
+else:
+    st.success("✅ No plant conflicts detected in current layout!")
