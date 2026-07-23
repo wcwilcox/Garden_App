@@ -40,6 +40,7 @@ from src.garden_ui import (
 
 from src.garden_state import (
     save_garden_layout,
+    get_garden_layout,
     get_previous_year_layout
 )
 
@@ -77,6 +78,16 @@ year, season = render_sidebar()
 
 
 # ---------------------------------------------------------
+# LOAD SAVED GARDEN LAYOUT
+# ---------------------------------------------------------
+
+saved_layout = get_garden_layout(
+    year=year,
+    season=season
+)
+
+
+# ---------------------------------------------------------
 # GARDEN GRID
 # ---------------------------------------------------------
 
@@ -85,8 +96,14 @@ garden_state = render_garden_grid(
     crop_options=crop_options,
     crop_map=crop_map,
     year=year,
-    season=season
+    season=season,
+    saved_layout=saved_layout
 )
+
+
+# ---------------------------------------------------------
+# SAVE CURRENT GARDEN STATE
+# ---------------------------------------------------------
 
 save_garden_layout(
     garden_state=garden_state,
@@ -100,9 +117,30 @@ save_garden_layout(
 # ---------------------------------------------------------
 
 past_garden_state = get_previous_year_layout(
+    year=year,
+    season=season
+)
+
+
+# ---------------------------------------------------------
+# SAVE CURRENT GARDEN STATE
+# ---------------------------------------------------------
+
+save_garden_layout(
     garden_state=garden_state,
     year=year,
     season=season
+)
+
+
+# ---------------------------------------------------------
+# HISTORICAL STATE
+# ---------------------------------------------------------
+
+from src.garden_state import (
+    save_garden_layout,
+    get_garden_layout,
+    get_previous_year_layout
 )
 
 

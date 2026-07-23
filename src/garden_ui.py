@@ -41,29 +41,68 @@ def render_garden_grid(
     crop_options,
     crop_map,
     year,
-    season
+    season,
+    saved_layout=None
 ):
     """
     Renders the garden bed selection grid.
 
     Args:
-        bed_sections: Dictionary containing garden sections and bed IDs.
-        crop_options: List of crop abbreviations available for selection.
-        crop_map: Dictionary mapping crop abbreviations to full crop names.
-        year: Selected garden year.
-        season: Selected garden season.
+        bed_sections:
+            Dictionary containing garden sections
+            and bed IDs.
+
+        crop_options:
+            List of crop abbreviations available
+            for selection.
+
+        crop_map:
+            Dictionary mapping crop abbreviations
+            to full crop names.
+
+        year:
+            Selected garden year.
+
+        season:
+            Selected garden season.
+
+        saved_layout:
+            Previously saved garden layout for
+            the selected year and season.
 
     Returns:
-        dict: Mapping of bed IDs to selected crop abbreviations.
+        dict:
+            Mapping of bed IDs to selected
+            crop abbreviations.
     """
+
+    # Use empty dictionary if no saved layout exists
+    if saved_layout is None:
+
+        saved_layout = {}
+
 
     garden_state = {}
 
+
+    # ---------------------------------------------------------
+    # RENDER GARDEN SECTIONS
+    # ---------------------------------------------------------
+
     for section_name, beds in bed_sections.items():
 
-        st.subheader(section_name)
+        st.subheader(
+            section_name
+        )
 
-        cols = st.columns(len(beds))
+        cols = st.columns(
+            len(beds)
+        )
+
+
+        # -----------------------------------------------------
+        # RENDER INDIVIDUAL BEDS
+        # -----------------------------------------------------
 
         for idx, bed_id in enumerate(beds):
 
@@ -74,18 +113,60 @@ def render_garden_grid(
                     f"**{bed_id}**"
                 )
 
-                # Crop selection
+
+                # -------------------------------------------------
+                # DETERMINE SAVED CROP
+                # -------------------------------------------------
+
+                saved_crop = saved_layout.get(
+                    bed_id,
+                    "Empty"
+                )
+
+
+                # -------------------------------------------------
+                # DETERMINE DROPDOWN INDEX
+                # -------------------------------------------------
+
+                if saved_crop in crop_options:
+
+                    default_index = (
+                        crop_options.index(
+                            saved_crop
+                        )
+                    )
+
+                else:
+
+                    default_index = 0
+
+
+                # -------------------------------------------------
+                # CROP SELECTION
+                # -------------------------------------------------
+
                 selected_crop = st.selectbox(
                     label=bed_id,
                     options=crop_options,
+                    index=default_index,
                     key=f"{year}_{season}_{bed_id}",
                     label_visibility="collapsed"
                 )
 
-                # Save selected crop
-                garden_state[bed_id] = selected_crop
 
-                # Display full crop name
+                # -------------------------------------------------
+                # SAVE CURRENT SELECTION
+                # -------------------------------------------------
+
+                garden_state[bed_id] = (
+                    selected_crop
+                )
+
+
+                # -------------------------------------------------
+                # DISPLAY FULL CROP NAME
+                # -------------------------------------------------
+
                 if (
                     selected_crop
                     and selected_crop != "Empty"
@@ -105,5 +186,6 @@ def render_garden_grid(
                     st.caption(
                         "⚪ *Empty*"
                     )
+
 
     return garden_state
