@@ -2,13 +2,12 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-# Dynamically resolve project root: src/crop_data.py -> src/ -> root/
+# Path relative to src/crop_data.py -> project root -> data / Garden_Planning.xlsx
 ROOT_DIR = Path(__file__).resolve().parent.parent
 EXCEL_PATH = ROOT_DIR / "data" / "Garden_Planning.xlsx"
 
 @st.cache_data
 def load_crop_database():
-    """Loads the Master Garden Calendar from Excel."""
     try:
         df = pd.read_excel(EXCEL_PATH, sheet_name=0)
         df.columns = df.columns.str.strip()

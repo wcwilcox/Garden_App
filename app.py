@@ -29,7 +29,6 @@ st.sidebar.divider()
 st.sidebar.info(f"Viewing: **{season} {year}**")
 
 # --- GARDEN GRID RENDERER ---
-# State dictionary to hold current selections for rule validation
 garden_state = {}
 
 for section_name, beds in BED_SECTIONS.items():
@@ -63,10 +62,15 @@ for section_name, beds in BED_SECTIONS.items():
 st.divider()
 st.header("⚠️ Validation & Alerts")
 
-companion_alerts = check_seasonality(garden_state, crops_df)
-nitrogen_alerts = check_nitrogen_rules(garden_state, crops_df)
+# 1. Initialize historical state (safe fallback if no past data yet)
+past_garden_state = st.session_state.get("past_garden_state", {})
 
-all_alerts = companion_alerts + nitrogen_alerts
+# 2. Run rule checks
+seasonality_alerts = check_seasonality(garden_state, season, crops_df)
+nitrogen_alerts = check_nitrogen_rules(garden_state, crops_df, past_layout=past_garden_state)
+
+# 3. Combine alerts
+all_alerts = seasonality_alerts + nitrogen_alerts
 
 if all_alerts:
     for alert in all_alerts:

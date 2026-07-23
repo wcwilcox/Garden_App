@@ -1,10 +1,14 @@
-def check_nitrogen_rules(current_layout, past_layout, crops_df):
+# src/crop_rules.py
+
+def check_nitrogen_rules(current_layout, crops_df, past_layout=None):
     """
     Checks if a High Nitrogen crop is planted where another High Nitrogen 
     crop was planted in the previous year.
     """
     alerts = []
-    
+    if past_layout is None:
+        return alerts  # Skip check if no past layout is loaded
+        
     # Identify all high nitrogen abbreviations from Excel
     high_n_crops = crops_df[crops_df["Nitrogen Level"] == "High"]["Abrv"].tolist()
     
@@ -17,6 +21,8 @@ def check_nitrogen_rules(current_layout, past_layout, crops_df):
                     f"Consecutive High Nitrogen crops ({past_abrv} last year → {current_abrv} this year)."
                 )
     return alerts
+
+
 
 def check_seasonality(current_layout, selected_season, crops_df):
     """
