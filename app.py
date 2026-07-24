@@ -1,22 +1,10 @@
-import sys
-from pathlib import Path
-
-
-# ---------------------------------------------------------
-# PROJECT PATH
-# ---------------------------------------------------------
-
-root_dir = Path(__file__).resolve().parent
-
-if str(root_dir) not in sys.path:
-    sys.path.append(str(root_dir))
-
-
-# ---------------------------------------------------------
-# IMPORTS
-# ---------------------------------------------------------
-
 import streamlit as st
+
+
+
+from src.garden_database import (
+    initialize_database,
+)
 
 from src.crop_data import (
     get_crop_options,
@@ -45,6 +33,7 @@ from src.garden_state import (
 )
 
 
+
 # ---------------------------------------------------------
 # PAGE SETUP
 # ---------------------------------------------------------
@@ -54,9 +43,12 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title(
-    "🌱 Personal Garden Planner"
-)
+
+# ---------------------------------------------------------
+# INITIALIZE DATABASE
+# ---------------------------------------------------------
+
+initialize_database()
 
 
 # ---------------------------------------------------------

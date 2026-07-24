@@ -1,16 +1,12 @@
-import streamlit as st
+from src.garden_database import (
+    save_layout,
+    load_layout
+)
 
 
-def initialize_garden_history():
-    """
-    Initializes the garden history dictionary
-    in Streamlit session state.
-    """
-
-    if "garden_history" not in st.session_state:
-
-        st.session_state.garden_history = {}
-
+# ---------------------------------------------------------
+# SAVE GARDEN LAYOUT
+# ---------------------------------------------------------
 
 def save_garden_layout(
     garden_state,
@@ -18,78 +14,48 @@ def save_garden_layout(
     season
 ):
     """
-    Saves the current garden layout for
-    the selected year and season.
-
-    Args:
-        garden_state: Dictionary mapping bed IDs
-                      to crop abbreviations.
-        year: Selected garden year.
-        season: Selected garden season.
+    Saves the current garden layout
+    to the SQLite database.
     """
 
-    # Make sure history exists
-    initialize_garden_history()
-
-    # Create unique history key
-    history_key = (
-        f"{year}_{season}"
+    save_layout(
+        garden_state=garden_state,
+        year=year,
+        season=season
     )
 
-    # Save a copy of the layout
-    st.session_state.garden_history[
-        history_key
-    ] = garden_state.copy()
 
+# ---------------------------------------------------------
+# GET GARDEN LAYOUT
+# ---------------------------------------------------------
 
 def get_garden_layout(
     year,
     season
 ):
     """
-    Retrieves a saved garden layout
-    for a specific year and season.
-
-    Returns:
-        dict: Saved garden layout.
-
-        Returns an empty dictionary if
-        no layout has been saved.
+    Loads a garden layout from
+    the SQLite database.
     """
 
-    # Make sure history exists
-    initialize_garden_history()
-
-    # Create lookup key
-    history_key = (
-        f"{year}_{season}"
+    return load_layout(
+        year=year,
+        season=season
     )
 
-    # Retrieve saved layout
-    return st.session_state.garden_history.get(
-        history_key,
-        {}
-    ).copy()
 
+# ---------------------------------------------------------
+# GET PREVIOUS YEAR LAYOUT
+# ---------------------------------------------------------
 
 def get_previous_year_layout(
     year,
     season
 ):
     """
-    Retrieves the garden layout from
-    the previous year for the same season.
-
-    Example:
-
-        Current:
-        2026 Spring
-
-        Previous:
-        2025 Spring
-
-    Returns:
-        dict: Previous year's garden layout.
+    Loads the garden layout from
+    the previous year for the
+    same season.
     """
 
     previous_year = year - 1

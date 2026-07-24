@@ -164,7 +164,7 @@ def render_garden_grid(
 
 
                 # -------------------------------------------------
-                # DISPLAY FULL CROP NAME
+                # DISPLAY FULL CROP NAME (CAPTION)
                 # -------------------------------------------------
 
                 if (

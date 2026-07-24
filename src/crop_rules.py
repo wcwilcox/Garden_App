@@ -52,6 +52,7 @@ def check_nitrogen_rules(
         .str.strip()
     )
 
+
     # Compare current year against previous year
     for bed_id, current_abrv in current_layout.items():
 

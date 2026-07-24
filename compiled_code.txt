@@ -6,25 +6,11 @@ GARDEN APP - COMPILED PYTHON SOURCE CODE
 FILE: app.py
 ================================================================================
 
-import sys
-from pathlib import Path
-
-
-# ---------------------------------------------------------
-# PROJECT PATH
-# ---------------------------------------------------------
-
-root_dir = Path(__file__).resolve().parent
-
-if str(root_dir) not in sys.path:
-    sys.path.append(str(root_dir))
-
-
-# ---------------------------------------------------------
-# IMPORTS
-# ---------------------------------------------------------
-
 import streamlit as st
+
+from src.garden_database import (
+    initialize_database
+)
 
 from src.crop_data import (
     get_crop_options,
@@ -53,6 +39,7 @@ from src.garden_state import (
 )
 
 
+
 # ---------------------------------------------------------
 # PAGE SETUP
 # ---------------------------------------------------------
@@ -62,9 +49,12 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title(
-    "🌱 Personal Garden Planner"
-)
+
+# ---------------------------------------------------------
+# INITIALIZE DATABASE
+# ---------------------------------------------------------
+
+initialize_database()
 
 
 # ---------------------------------------------------------
@@ -131,28 +121,6 @@ past_garden_state = get_previous_year_layout(
 
 
 # ---------------------------------------------------------
-# SAVE CURRENT GARDEN STATE
-# ---------------------------------------------------------
-
-save_garden_layout(
-    garden_state=garden_state,
-    year=year,
-    season=season
-)
-
-
-# ---------------------------------------------------------
-# HISTORICAL STATE
-# ---------------------------------------------------------
-
-from src.garden_state import (
-    save_garden_layout,
-    get_garden_layout,
-    get_previous_year_layout
-)
-
-
-# ---------------------------------------------------------
 # VALIDATION & ALERTS
 # ---------------------------------------------------------
 
@@ -163,7 +131,10 @@ st.header(
 )
 
 
-# Run seasonality checks
+# ---------------------------------------------------------
+# SEASONALITY CHECK
+# ---------------------------------------------------------
+
 seasonality_alerts = check_seasonality(
     garden_state,
     season,
@@ -171,7 +142,10 @@ seasonality_alerts = check_seasonality(
 )
 
 
-# Run nitrogen rotation checks
+# ---------------------------------------------------------
+# NITROGEN ROTATION CHECK
+# ---------------------------------------------------------
+
 nitrogen_alerts = check_nitrogen_rules(
     garden_state,
     crops_df,
@@ -179,7 +153,10 @@ nitrogen_alerts = check_nitrogen_rules(
 )
 
 
-# Combine all alerts
+# ---------------------------------------------------------
+# COMBINE ALERTS
+# ---------------------------------------------------------
+
 all_alerts = (
     seasonality_alerts
     + nitrogen_alerts
@@ -410,6 +387,147 @@ def check_seasonality(current_layout, selected_season, crops_df):
 
 
 ================================================================================
+FILE: src\garden_database.py
+================================================================================
+
+import sqlite3
+from pathlib import Path
+
+
+# ---------------------------------------------------------
+# DATABASE PATH
+# ---------------------------------------------------------
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+DATA_DIR = ROOT_DIR / "data"
+
+DATA_DIR.mkdir(
+    exist_ok=True
+)
+
+DATABASE_PATH = DATA_DIR / "garden.db"
+
+
+# ---------------------------------------------------------
+# DATABASE CONNECTION
+# ---------------------------------------------------------
+
+def get_connection():
+
+    return sqlite3.connect(
+        DATABASE_PATH
+    )
+
+
+# ---------------------------------------------------------
+# INITIALIZE DATABASE
+# ---------------------------------------------------------
+
+def initialize_database():
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS garden_layouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            year INTEGER NOT NULL,
+            season TEXT NOT NULL,
+            bed_id TEXT NOT NULL,
+            crop TEXT NOT NULL,
+            UNIQUE(year, season, bed_id)
+        )
+        """
+    )
+
+    connection.commit()
+
+    connection.close()
+
+
+# ---------------------------------------------------------
+# SAVE GARDEN LAYOUT
+# ---------------------------------------------------------
+
+def save_layout(
+    garden_state,
+    year,
+    season
+):
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    for bed_id, crop in garden_state.items():
+
+        cursor.execute(
+            """
+            INSERT INTO garden_layouts (
+                year,
+                season,
+                bed_id,
+                crop
+            )
+            VALUES (?, ?, ?, ?)
+
+            ON CONFLICT(year, season, bed_id)
+            DO UPDATE SET
+                crop = excluded.crop
+            """,
+            (
+                year,
+                season,
+                bed_id,
+                crop
+            )
+        )
+
+    connection.commit()
+
+    connection.close()
+
+
+# ---------------------------------------------------------
+# LOAD GARDEN LAYOUT
+# ---------------------------------------------------------
+
+def load_layout(
+    year,
+    season
+):
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT bed_id, crop
+        FROM garden_layouts
+        WHERE year = ?
+        AND season = ?
+        """,
+        (
+            year,
+            season
+        )
+    )
+
+    rows = cursor.fetchall()
+
+    connection.close()
+
+    return {
+        bed_id: crop
+        for bed_id, crop in rows
+    }
+
+
+================================================================================
 FILE: src\garden_layout.py
 ================================================================================
 
@@ -437,19 +555,15 @@ BED_NEIGHBORS = {
 FILE: src\garden_state.py
 ================================================================================
 
-import streamlit as st
+from src.garden_database import (
+    save_layout,
+    load_layout
+)
 
 
-def initialize_garden_history():
-    """
-    Initializes the garden history dictionary
-    in Streamlit session state.
-    """
-
-    if "garden_history" not in st.session_state:
-
-        st.session_state.garden_history = {}
-
+# ---------------------------------------------------------
+# SAVE GARDEN LAYOUT
+# ---------------------------------------------------------
 
 def save_garden_layout(
     garden_state,
@@ -457,78 +571,48 @@ def save_garden_layout(
     season
 ):
     """
-    Saves the current garden layout for
-    the selected year and season.
-
-    Args:
-        garden_state: Dictionary mapping bed IDs
-                      to crop abbreviations.
-        year: Selected garden year.
-        season: Selected garden season.
+    Saves the current garden layout
+    to the SQLite database.
     """
 
-    # Make sure history exists
-    initialize_garden_history()
-
-    # Create unique history key
-    history_key = (
-        f"{year}_{season}"
+    save_layout(
+        garden_state=garden_state,
+        year=year,
+        season=season
     )
 
-    # Save a copy of the layout
-    st.session_state.garden_history[
-        history_key
-    ] = garden_state.copy()
 
+# ---------------------------------------------------------
+# GET GARDEN LAYOUT
+# ---------------------------------------------------------
 
 def get_garden_layout(
     year,
     season
 ):
     """
-    Retrieves a saved garden layout
-    for a specific year and season.
-
-    Returns:
-        dict: Saved garden layout.
-
-        Returns an empty dictionary if
-        no layout has been saved.
+    Loads a garden layout from
+    the SQLite database.
     """
 
-    # Make sure history exists
-    initialize_garden_history()
-
-    # Create lookup key
-    history_key = (
-        f"{year}_{season}"
+    return load_layout(
+        year=year,
+        season=season
     )
 
-    # Retrieve saved layout
-    return st.session_state.garden_history.get(
-        history_key,
-        {}
-    ).copy()
 
+# ---------------------------------------------------------
+# GET PREVIOUS YEAR LAYOUT
+# ---------------------------------------------------------
 
 def get_previous_year_layout(
     year,
     season
 ):
     """
-    Retrieves the garden layout from
-    the previous year for the same season.
-
-    Example:
-
-        Current:
-        2026 Spring
-
-        Previous:
-        2025 Spring
-
-    Returns:
-        dict: Previous year's garden layout.
+    Loads the garden layout from
+    the previous year for the
+    same season.
     """
 
     previous_year = year - 1
@@ -537,7 +621,6 @@ def get_previous_year_layout(
         year=previous_year,
         season=season
     )
-
 
 
 ================================================================================
