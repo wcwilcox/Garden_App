@@ -1,7 +1,5 @@
 import streamlit as st
 
-
-
 from src.garden_database import (
     initialize_database,
 )
@@ -16,10 +14,7 @@ from src.garden_layout import (
     BED_SECTIONS
 )
 
-from src.crop_rules import (
-    check_seasonality,
-    check_nitrogen_rules
-)
+from src.crop_rules.validator import validate_layout
 
 from src.garden_ui import (
     render_sidebar,
@@ -125,45 +120,16 @@ st.header(
 )
 
 
-# ---------------------------------------------------------
-# SEASONALITY CHECK
-# ---------------------------------------------------------
-
-seasonality_alerts = check_seasonality(
-    garden_state,
-    season,
-    crops_df
+alerts = validate_layout(
+    current_layout=garden_state,
+    past_layout=past_garden_state,
+    selected_season=season,
+    crops_df=crops_df
 )
 
+if alerts:
 
-# ---------------------------------------------------------
-# NITROGEN ROTATION CHECK
-# ---------------------------------------------------------
-
-nitrogen_alerts = check_nitrogen_rules(
-    garden_state,
-    crops_df,
-    past_layout=past_garden_state
-)
-
-
-# ---------------------------------------------------------
-# COMBINE ALERTS
-# ---------------------------------------------------------
-
-all_alerts = (
-    seasonality_alerts
-    + nitrogen_alerts
-)
-
-
-# ---------------------------------------------------------
-# DISPLAY ALERTS
-# ---------------------------------------------------------
-
-if all_alerts:
-
-    for alert in all_alerts:
+    for alert in alerts:
 
         st.warning(
             alert
