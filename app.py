@@ -16,9 +16,12 @@ from src.garden_layout import (
 
 from src.crop_rules.validator import validate_layout
 
-from src.garden_ui import (
-    render_sidebar,
-    render_garden_grid
+from src.garden_ui.sidebar import (
+    render_sidebar
+)
+
+from src.garden_ui.garden_map import (
+    render_garden_map
 )
 
 from src.garden_state import (
@@ -78,7 +81,7 @@ saved_layout = get_garden_layout(
 # GARDEN GRID
 # ---------------------------------------------------------
 
-garden_state = render_garden_grid(
+garden_state = render_garden_map(
     bed_sections=BED_SECTIONS,
     crop_options=crop_options,
     crop_map=crop_map,
