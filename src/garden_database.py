@@ -42,11 +42,26 @@ def initialize_database():
         """
         CREATE TABLE IF NOT EXISTS garden_layouts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+
             year INTEGER NOT NULL,
+
             season TEXT NOT NULL,
+
             bed_id TEXT NOT NULL,
+
+            row INTEGER NOT NULL,
+
+            column INTEGER NOT NULL,
+
             crop TEXT NOT NULL,
-            UNIQUE(year, season, bed_id)
+
+            UNIQUE(
+                year,
+                season,
+                bed_id,
+                row,
+                column
+            )
         )
         """
     )
@@ -65,34 +80,68 @@ def save_layout(
     year,
     season
 ):
+    """
+    Saves the current garden layout.
+
+    Each planting cell is stored as an
+    individual database record.
+
+    Expected garden_state format:
+
+        {
+            "BR1": {
+                (0, 0): "Tomato",
+                (0, 1): "Tomato",
+                (1, 0): "Beans",
+            }
+        }
+    """
 
     connection = get_connection()
 
     cursor = connection.cursor()
 
-    for bed_id, crop in garden_state.items():
+    for bed_id, cells in garden_state.items():
 
-        cursor.execute(
-            """
-            INSERT INTO garden_layouts (
-                year,
-                season,
-                bed_id,
-                crop
-            )
-            VALUES (?, ?, ?, ?)
+        for (
+            cell_position,
+            crop
+        ) in cells.items():
 
-            ON CONFLICT(year, season, bed_id)
-            DO UPDATE SET
-                crop = excluded.crop
-            """,
-            (
-                year,
-                season,
-                bed_id,
-                crop
+            row, column = cell_position
+
+            cursor.execute(
+                """
+                INSERT INTO garden_layouts (
+                    year,
+                    season,
+                    bed_id,
+                    row,
+                    column,
+                    crop
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+
+                ON CONFLICT(
+                    year,
+                    season,
+                    bed_id,
+                    row,
+                    column
+                )
+
+                DO UPDATE SET
+                    crop = excluded.crop
+                """,
+                (
+                    year,
+                    season,
+                    bed_id,
+                    row,
+                    column,
+                    crop
+                )
             )
-        )
 
     connection.commit()
 
@@ -107,6 +156,18 @@ def load_layout(
     year,
     season
 ):
+    """
+    Loads a garden layout from SQLite.
+
+    Returns:
+
+        {
+            "BR1": {
+                (0, 0): "Tomato",
+                (0, 1): "Tomato",
+            }
+        }
+    """
 
     connection = get_connection()
 
@@ -114,10 +175,21 @@ def load_layout(
 
     cursor.execute(
         """
-        SELECT bed_id, crop
+        SELECT
+            bed_id,
+            row,
+            column,
+            crop
+
         FROM garden_layouts
+
         WHERE year = ?
         AND season = ?
+
+        ORDER BY
+            bed_id,
+            row,
+            column
         """,
         (
             year,
@@ -129,11 +201,36 @@ def load_layout(
 
     connection.close()
 
-    return {
-        bed_id: crop
-        for bed_id, crop in rows
-    }
 
+    garden_state = {}
+
+
+    for (
+        bed_id,
+        row,
+        column,
+        crop
+    ) in rows:
+
+        if bed_id not in garden_state:
+
+            garden_state[
+                bed_id
+            ] = {}
+
+        garden_state[
+            bed_id
+        ][
+            (row, column)
+        ] = crop
+
+
+    return garden_state
+
+
+# ---------------------------------------------------------
+# GET ALL LAYOUTS
+# ---------------------------------------------------------
 
 def get_all_layouts():
 
@@ -143,9 +240,22 @@ def get_all_layouts():
 
     cursor.execute(
         """
-        SELECT year, season, bed_id, crop
+        SELECT
+            year,
+            season,
+            bed_id,
+            row,
+            column,
+            crop
+
         FROM garden_layouts
-        ORDER BY year, season, bed_id
+
+        ORDER BY
+            year,
+            season,
+            bed_id,
+            row,
+            column
         """
     )
 

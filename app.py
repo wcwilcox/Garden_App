@@ -1,3 +1,5 @@
+#streamlit run app.py
+
 import streamlit as st
 
 from src.garden_database import (
@@ -10,17 +12,13 @@ from src.crop_data import (
     get_crop_mapping
 )
 
-from src.garden_layout import (
-    BED_SECTIONS
-)
-
 from src.crop_rules.validator import validate_layout
 
 from src.garden_ui.sidebar import (
     render_sidebar
 )
 
-from src.garden_ui.garden_map import (
+from src.garden_ui.garden_renderer import (
     render_garden_map
 )
 
@@ -82,12 +80,11 @@ saved_layout = get_garden_layout(
 # ---------------------------------------------------------
 
 garden_state = render_garden_map(
-    bed_sections=BED_SECTIONS,
     crop_options=crop_options,
     crop_map=crop_map,
+    saved_layout=saved_layout,
     year=year,
     season=season,
-    saved_layout=saved_layout
 )
 
 

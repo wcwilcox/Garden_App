@@ -6,10 +6,12 @@ GARDEN APP - COMPILED PYTHON SOURCE CODE
 FILE: app.py
 ================================================================================
 
+#streamlit run app.py
+
 import streamlit as st
 
 from src.garden_database import (
-    initialize_database
+    initialize_database,
 )
 
 from src.crop_data import (
@@ -18,18 +20,14 @@ from src.crop_data import (
     get_crop_mapping
 )
 
-from src.garden_layout import (
-    BED_SECTIONS
+from src.crop_rules.validator import validate_layout
+
+from src.garden_ui.sidebar import (
+    render_sidebar
 )
 
-from src.crop_rules import (
-    check_seasonality,
-    check_nitrogen_rules
-)
-
-from src.garden_ui import (
-    render_sidebar,
-    render_garden_grid
+from src.garden_ui.garden_renderer import (
+    render_garden_map
 )
 
 from src.garden_state import (
@@ -89,12 +87,9 @@ saved_layout = get_garden_layout(
 # GARDEN GRID
 # ---------------------------------------------------------
 
-garden_state = render_garden_grid(
-    bed_sections=BED_SECTIONS,
+garden_state = render_garden_map(
     crop_options=crop_options,
     crop_map=crop_map,
-    year=year,
-    season=season,
     saved_layout=saved_layout
 )
 
@@ -131,45 +126,16 @@ st.header(
 )
 
 
-# ---------------------------------------------------------
-# SEASONALITY CHECK
-# ---------------------------------------------------------
-
-seasonality_alerts = check_seasonality(
-    garden_state,
-    season,
-    crops_df
+alerts = validate_layout(
+    current_layout=garden_state,
+    past_layout=past_garden_state,
+    selected_season=season,
+    crops_df=crops_df
 )
 
+if alerts:
 
-# ---------------------------------------------------------
-# NITROGEN ROTATION CHECK
-# ---------------------------------------------------------
-
-nitrogen_alerts = check_nitrogen_rules(
-    garden_state,
-    crops_df,
-    past_layout=past_garden_state
-)
-
-
-# ---------------------------------------------------------
-# COMBINE ALERTS
-# ---------------------------------------------------------
-
-all_alerts = (
-    seasonality_alerts
-    + nitrogen_alerts
-)
-
-
-# ---------------------------------------------------------
-# DISPLAY ALERTS
-# ---------------------------------------------------------
-
-if all_alerts:
-
-    for alert in all_alerts:
+    for alert in alerts:
 
         st.warning(
             alert
@@ -267,10 +233,22 @@ def get_crop_options():
 
 
 ================================================================================
-FILE: src\crop_rules.py
+FILE: src\crop_rules\__init__.py
 ================================================================================
 
-# src/crop_rules.py
+
+
+
+================================================================================
+FILE: src\crop_rules\helpers.py
+================================================================================
+
+
+
+
+================================================================================
+FILE: src\crop_rules\nitrogen.py
+================================================================================
 
 def check_nitrogen_rules(
     current_layout,
@@ -324,6 +302,7 @@ def check_nitrogen_rules(
         .str.strip()
     )
 
+
     # Compare current year against previous year
     for bed_id, current_abrv in current_layout.items():
 
@@ -363,26 +342,240 @@ def check_nitrogen_rules(
     return alerts
 
 
-def check_seasonality(current_layout, selected_season, crops_df):
+================================================================================
+FILE: src\crop_rules\rotation.py
+================================================================================
+
+# src/crop_rules/rotation.py
+
+
+def check_crop_family_rules(
+    current_layout,
+    crops_df,
+    past_layout=None
+):
+    """
+    Checks if crops from the same crop family are planted
+    in the same bed in consecutive years.
+
+    Example:
+
+        Previous year: Pumpkin
+        Current year:  Zucchini
+
+    Both are Cucurbits, so a rotation warning is generated.
+    """
+
+    alerts = []
+
+    # No historical layout or crop data
+    if (
+        past_layout is None
+        or crops_df.empty
+    ):
+        return alerts
+
+    # Clean column names
+    crops_df.columns = (
+        crops_df.columns
+        .str.strip()
+    )
+
+    # Make sure required columns exist
+    if (
+        "Abrv" not in crops_df.columns
+        or "Crop Family" not in crops_df.columns
+    ):
+        return alerts
+
+    # Create crop family lookup
+    crop_families = {}
+
+    for _, row in crops_df.iterrows():
+
+        abrv = (
+            str(row["Abrv"])
+            .strip()
+            .upper()
+        )
+
+        family = (
+            str(row["Crop Family"])
+            .strip()
+            .upper()
+        )
+
+        # Ignore missing crop abbreviations
+        if not abrv:
+            continue
+
+        # Ignore missing crop families
+        if (
+            not family
+            or family == "NAN"
+        ):
+            continue
+
+        crop_families[abrv] = family
+
+    # Compare current year against previous year
+    for bed_id, current_abrv in current_layout.items():
+
+        # Normalize current crop abbreviation
+        current_crop = (
+            str(current_abrv)
+            .strip()
+            .upper()
+        )
+
+        # Ignore empty current beds
+        if (
+            not current_crop
+            or current_crop == "EMPTY"
+        ):
+            continue
+
+        # Get previous year's crop
+        past_abrv = past_layout.get(
+            bed_id,
+            "Empty"
+        )
+
+        # Normalize previous crop abbreviation
+        past_crop = (
+            str(past_abrv)
+            .strip()
+            .upper()
+        )
+
+        # Ignore empty previous beds
+        if (
+            not past_crop
+            or past_crop == "EMPTY"
+        ):
+            continue
+
+        # Get crop families
+        current_family = crop_families.get(
+            current_crop
+        )
+
+        past_family = crop_families.get(
+            past_crop
+        )
+
+        # Skip if either crop is not found
+        # or has no family information
+        if (
+            not current_family
+            or not past_family
+        ):
+            continue
+
+        # Check if both crops belong to
+        # the same crop family
+        if current_family == past_family:
+
+            alerts.append(
+                f"⚠️ **Crop Family Rotation Warning in {bed_id}:** "
+                f"{past_abrv} last year → "
+                f"{current_abrv} this year. "
+                f"Both crops belong to the "
+                f"{current_family.title()} family. "
+                f"Consider rotating to a different crop family."
+            )
+
+    return alerts
+
+
+================================================================================
+FILE: src\crop_rules\seasonality.py
+================================================================================
+
+def check_seasonality(
+        current_layout, 
+        selected_season, 
+        crops_df
+    ):
     """
     Warns if a crop is placed in a season it doesn't support according to 'Grow Season'.
     """
+
     alerts = []
     
     for bed_id, abrv in current_layout.items():
+
         if abrv == "Empty" or not abrv:
             continue
             
-        crop_row = crops_df[crops_df["Abrv"] == abrv]
+        crop_row = crops_df[
+            crops_df["Abrv"] == abrv
+        ]
+        
         if not crop_row.empty:
+
             valid_seasons = str(crop_row["Grow Season"].values[0])
             
             # Check if selected season is within the crop's allowed seasons
-            if selected_season not in valid_seasons and "Perennial" not in valid_seasons and "Full Season" not in valid_seasons:
+            if (
+                selected_season 
+                not in valid_seasons 
+                and "Perennial" 
+                not in valid_seasons 
+                and "Full Season" 
+                not in valid_seasons
+            ):
+
+
                 alerts.append(
                     f"📅 **Seasonality Alert in {bed_id}:** {abrv} typically grows in "
                     f"'{valid_seasons}', but current layout is set to '{selected_season}'."
                 )
+    return alerts
+
+
+================================================================================
+FILE: src\crop_rules\validator.py
+================================================================================
+
+from .nitrogen import check_nitrogen_rules
+from .rotation import check_crop_family_rules
+from .seasonality import check_seasonality
+
+
+def validate_layout(
+    current_layout,
+    past_layout,
+    selected_season,
+    crops_df
+):
+
+    alerts = []
+
+    alerts.extend(
+        check_nitrogen_rules(
+            current_layout,
+            crops_df,
+            past_layout
+        )
+    )
+
+    alerts.extend(
+        check_crop_family_rules(
+            current_layout,
+            crops_df,
+            past_layout
+        )
+    )
+
+    alerts.extend(
+        check_seasonality(
+            current_layout,
+            selected_season,
+            crops_df
+        )
+    )
+
     return alerts
 
 
@@ -434,11 +627,26 @@ def initialize_database():
         """
         CREATE TABLE IF NOT EXISTS garden_layouts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+
             year INTEGER NOT NULL,
+
             season TEXT NOT NULL,
+
             bed_id TEXT NOT NULL,
+
+            row INTEGER NOT NULL,
+
+            column INTEGER NOT NULL,
+
             crop TEXT NOT NULL,
-            UNIQUE(year, season, bed_id)
+
+            UNIQUE(
+                year,
+                season,
+                bed_id,
+                row,
+                column
+            )
         )
         """
     )
@@ -457,34 +665,68 @@ def save_layout(
     year,
     season
 ):
+    """
+    Saves the current garden layout.
+
+    Each planting cell is stored as an
+    individual database record.
+
+    Expected garden_state format:
+
+        {
+            "BR1": {
+                (0, 0): "Tomato",
+                (0, 1): "Tomato",
+                (1, 0): "Beans",
+            }
+        }
+    """
 
     connection = get_connection()
 
     cursor = connection.cursor()
 
-    for bed_id, crop in garden_state.items():
+    for bed_id, cells in garden_state.items():
 
-        cursor.execute(
-            """
-            INSERT INTO garden_layouts (
-                year,
-                season,
-                bed_id,
-                crop
-            )
-            VALUES (?, ?, ?, ?)
+        for (
+            cell_position,
+            crop
+        ) in cells.items():
 
-            ON CONFLICT(year, season, bed_id)
-            DO UPDATE SET
-                crop = excluded.crop
-            """,
-            (
-                year,
-                season,
-                bed_id,
-                crop
+            row, column = cell_position
+
+            cursor.execute(
+                """
+                INSERT INTO garden_layouts (
+                    year,
+                    season,
+                    bed_id,
+                    row,
+                    column,
+                    crop
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+
+                ON CONFLICT(
+                    year,
+                    season,
+                    bed_id,
+                    row,
+                    column
+                )
+
+                DO UPDATE SET
+                    crop = excluded.crop
+                """,
+                (
+                    year,
+                    season,
+                    bed_id,
+                    row,
+                    column,
+                    crop
+                )
             )
-        )
 
     connection.commit()
 
@@ -499,6 +741,18 @@ def load_layout(
     year,
     season
 ):
+    """
+    Loads a garden layout from SQLite.
+
+    Returns:
+
+        {
+            "BR1": {
+                (0, 0): "Tomato",
+                (0, 1): "Tomato",
+            }
+        }
+    """
 
     connection = get_connection()
 
@@ -506,10 +760,21 @@ def load_layout(
 
     cursor.execute(
         """
-        SELECT bed_id, crop
+        SELECT
+            bed_id,
+            row,
+            column,
+            crop
+
         FROM garden_layouts
+
         WHERE year = ?
         AND season = ?
+
+        ORDER BY
+            bed_id,
+            row,
+            column
         """,
         (
             year,
@@ -521,33 +786,117 @@ def load_layout(
 
     connection.close()
 
-    return {
-        bed_id: crop
-        for bed_id, crop in rows
-    }
+
+    garden_state = {}
+
+
+    for (
+        bed_id,
+        row,
+        column,
+        crop
+    ) in rows:
+
+        if bed_id not in garden_state:
+
+            garden_state[
+                bed_id
+            ] = {}
+
+        garden_state[
+            bed_id
+        ][
+            (row, column)
+        ] = crop
+
+
+    return garden_state
+
+
+# ---------------------------------------------------------
+# GET ALL LAYOUTS
+# ---------------------------------------------------------
+
+def get_all_layouts():
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            year,
+            season,
+            bed_id,
+            row,
+            column,
+            crop
+
+        FROM garden_layouts
+
+        ORDER BY
+            year,
+            season,
+            bed_id,
+            row,
+            column
+        """
+    )
+
+    rows = cursor.fetchall()
+
+    connection.close()
+
+    return rows
 
 
 ================================================================================
 FILE: src\garden_layout.py
 ================================================================================
 
-# Map beds to their visual sections
-BED_SECTIONS = {
-    "Back Rows": ["BR1", "BR2", "BR3", "BR4"],
-    "Raised Beds": ["RB1", "RB2", "RB3"],
-    "Front Rows": ["FR1", "FR2", "FR3", "FR4"],
-    "Special Plots": ["DRB", "Tower_1", "Tower_2", "T1", "T2"]
-}
 
-# Define physical neighbors for spatial rule checks
-BED_NEIGHBORS = {
-    "FR1": ["FR2", "DRB"],
-    "FR2": ["FR1", "FR3", "Tree"],
-    "FR3": ["FR2", "FR4"],
-    "BR1": ["BR2"],
-    "BR2": ["BR1", "BR3"],
-    "BR3": ["BR2", "BR4"],
-    # Add remaining bed connections...
+BED_TYPES = {
+    "BR": {
+        "name": "BR Bed",
+        "columns": 2,
+        "rows": 5,
+    },
+    "RB": {
+        "name": "RB Bed",
+        "columns": 3,
+        "rows": 5,
+    },
+    "FR": {
+        "name": "FR Bed",
+        "columns": 2,
+        "rows": 5,
+    },
+    "DRB": {
+        "name": "DRB",
+        "columns": 3,
+        "rows": 5,
+    },
+    "TOWER": {
+        "name": "Tower",
+        "columns": 2,
+        "rows": 2,
+    },
+    "W": {
+        "name": "Water",
+        "columns": 1,
+        "rows": 1,
+    },
+    "TREE": {
+        "name": "Tree",
+        "columns": 1,
+        "rows": 1,
+    },
+    "T": {
+        "name": "PLANTER",
+        "columns": 2,
+        "rows": 2,
+    },
 }
 
 
@@ -624,11 +973,302 @@ def get_previous_year_layout(
 
 
 ================================================================================
-FILE: src\garden_ui.py
+FILE: src\garden_ui\__init__.py
+================================================================================
+
+
+
+
+================================================================================
+FILE: src\garden_ui\bed_editor.py
 ================================================================================
 
 import streamlit as st
 
+from src.garden_layout import (
+BEDS,
+BED_TYPES,
+)
+
+def render_static_object(
+bed_id
+):
+"""
+Renders a non-planting object such as
+a tower, water station, or tree.
+"""
+
+```
+bed_type = BEDS[
+    bed_id
+]["type"]
+
+name = BED_TYPES[
+    bed_type
+]["name"]
+
+st.markdown(
+    f"**{name}**"
+)
+
+st.caption(
+    bed_id
+)
+```
+
+def render_bed(
+bed_id,
+current_layout,
+crop_options,
+crop_map,
+saved_layout,
+year,
+season,
+):
+"""
+Renders the individual planting cells
+for a garden bed.
+
+```
+Returns the crop assignment for each cell.
+"""
+
+bed_type = BEDS[
+    bed_id
+]["type"]
+
+bed_info = BED_TYPES[
+    bed_type
+]
+
+rows = bed_info[
+    "rows"
+]
+
+columns = bed_info[
+    "columns"
+]
+
+bed_name = bed_info[
+    "name"
+]
+
+st.markdown(
+    f"**{bed_name}**"
+)
+
+st.caption(
+    bed_id
+)
+
+# Get saved cells for this bed
+saved_cells = saved_layout.get(
+    bed_id,
+    {}
+)
+
+# Initialize bed state
+bed_state = {}
+
+# Create one Streamlit column per physical column
+grid_columns = st.columns(
+    columns
+)
+
+# Render rows vertically
+for row in range(rows):
+
+    for column in range(columns):
+
+        cell_position = (
+            row,
+            column
+        )
+
+        saved_crop = saved_cells.get(
+            cell_position,
+            "Empty"
+        )
+
+        # Find the correct Streamlit column
+        cell_column = grid_columns[
+            column
+        ]
+
+        with cell_column:
+
+            selected_crop = st.selectbox(
+                f"{row + 1},{column + 1}",
+                crop_options,
+                index=(
+                    crop_options.index(
+                        saved_crop
+                    )
+                    if saved_crop
+                    in crop_options
+                    else 0
+                ),
+                key=(
+                    f"{year}_"
+                    f"{season}_"
+                    f"{bed_id}_"
+                    f"{row}_"
+                    f"{column}"
+                ),
+                label_visibility="collapsed",
+            )
+
+            bed_state[
+                cell_position
+            ] = selected_crop
+
+current_layout[
+    bed_id
+] = bed_state
+```
+
+
+
+================================================================================
+FILE: src\garden_ui\garden_renderer.py
+================================================================================
+
+import streamlit as st
+
+from src.garden_layout import (
+BEDS,
+GARDEN_MAP,
+)
+
+from src.garden_ui.bed_editor import (
+render_bed,
+render_static_object,
+)
+
+def render_garden_map(
+crop_options,
+crop_map,
+saved_layout,
+year,
+season,
+):
+"""
+Renders the complete physical garden map.
+
+```
+Returns:
+
+    {
+        "BR1": {
+            (0, 0): "Pk",
+            (0, 1): "Br",
+        }
+    }
+"""
+
+st.header(
+    f"{season} {year} Garden"
+)
+
+# -----------------------------------------------------
+# CURRENT GARDEN STATE
+# -----------------------------------------------------
+
+current_layout = {}
+
+
+# -----------------------------------------------------
+# RENDER PHYSICAL MAP
+# -----------------------------------------------------
+
+for map_row in GARDEN_MAP:
+
+    map_columns = st.columns(
+        len(map_row)
+    )
+
+    for map_column, bed_id in zip(
+        map_columns,
+        map_row
+    ):
+
+        with map_column:
+
+            # -----------------------------------------
+            # EMPTY MAP SPACE
+            # -----------------------------------------
+
+            if not bed_id:
+
+                st.write("")
+
+                continue
+
+
+            # -----------------------------------------
+            # CHECK BED EXISTS
+            # -----------------------------------------
+
+            if bed_id not in BEDS:
+
+                st.warning(
+                    f"Unknown bed: {bed_id}"
+                )
+
+                continue
+
+
+            # -----------------------------------------
+            # GET BED TYPE
+            # -----------------------------------------
+
+            bed_type = BEDS[
+                bed_id
+            ]["type"]
+
+
+            # -----------------------------------------
+            # STATIC OBJECTS
+            # -----------------------------------------
+
+            if bed_type in {
+                "TOWER",
+                "W",
+                "TREE",
+            }:
+
+                render_static_object(
+                    bed_id
+                )
+
+                continue
+
+
+            # -----------------------------------------
+            # PLANTING BED
+            # -----------------------------------------
+
+            render_bed(
+                bed_id=bed_id,
+                current_layout=current_layout,
+                crop_options=crop_options,
+                crop_map=crop_map,
+                saved_layout=saved_layout,
+                year=year,
+                season=season,
+            )
+
+
+return current_layout
+```
+
+
+
+================================================================================
+FILE: src\garden_ui\sidebar.py
+================================================================================
+
+import streamlit as st
 
 def render_sidebar():
     """
@@ -665,157 +1305,9 @@ def render_sidebar():
     return year, season
 
 
-def render_garden_grid(
-    bed_sections,
-    crop_options,
-    crop_map,
-    year,
-    season,
-    saved_layout=None
-):
-    """
-    Renders the garden bed selection grid.
-
-    Args:
-        bed_sections:
-            Dictionary containing garden sections
-            and bed IDs.
-
-        crop_options:
-            List of crop abbreviations available
-            for selection.
-
-        crop_map:
-            Dictionary mapping crop abbreviations
-            to full crop names.
-
-        year:
-            Selected garden year.
-
-        season:
-            Selected garden season.
-
-        saved_layout:
-            Previously saved garden layout for
-            the selected year and season.
-
-    Returns:
-        dict:
-            Mapping of bed IDs to selected
-            crop abbreviations.
-    """
-
-    # Use empty dictionary if no saved layout exists
-    if saved_layout is None:
-
-        saved_layout = {}
+================================================================================
+FILE: src\garden_ui\validation_display.py
+================================================================================
 
 
-    garden_state = {}
-
-
-    # ---------------------------------------------------------
-    # RENDER GARDEN SECTIONS
-    # ---------------------------------------------------------
-
-    for section_name, beds in bed_sections.items():
-
-        st.subheader(
-            section_name
-        )
-
-        cols = st.columns(
-            len(beds)
-        )
-
-
-        # -----------------------------------------------------
-        # RENDER INDIVIDUAL BEDS
-        # -----------------------------------------------------
-
-        for idx, bed_id in enumerate(beds):
-
-            with cols[idx]:
-
-                # Bed title
-                st.caption(
-                    f"**{bed_id}**"
-                )
-
-
-                # -------------------------------------------------
-                # DETERMINE SAVED CROP
-                # -------------------------------------------------
-
-                saved_crop = saved_layout.get(
-                    bed_id,
-                    "Empty"
-                )
-
-
-                # -------------------------------------------------
-                # DETERMINE DROPDOWN INDEX
-                # -------------------------------------------------
-
-                if saved_crop in crop_options:
-
-                    default_index = (
-                        crop_options.index(
-                            saved_crop
-                        )
-                    )
-
-                else:
-
-                    default_index = 0
-
-
-                # -------------------------------------------------
-                # CROP SELECTION
-                # -------------------------------------------------
-
-                selected_crop = st.selectbox(
-                    label=bed_id,
-                    options=crop_options,
-                    index=default_index,
-                    key=f"{year}_{season}_{bed_id}",
-                    label_visibility="collapsed"
-                )
-
-
-                # -------------------------------------------------
-                # SAVE CURRENT SELECTION
-                # -------------------------------------------------
-
-                garden_state[bed_id] = (
-                    selected_crop
-                )
-
-
-                # -------------------------------------------------
-                # DISPLAY FULL CROP NAME
-                # -------------------------------------------------
-
-                if (
-                    selected_crop
-                    and selected_crop != "Empty"
-                ):
-
-                    full_name = crop_map.get(
-                        selected_crop,
-                        "Unknown Crop"
-                    )
-
-                    st.caption(
-                        f"🌿 *{full_name}*"
-                    )
-
-                else:
-
-                    st.caption(
-                        "⚪ *Empty*"
-                    )
-
-
-    return garden_state
 
