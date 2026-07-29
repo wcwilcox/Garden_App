@@ -4,116 +4,116 @@ selected_season,
 crops_df,
 ):
 
-alerts = []
+    alerts = []
 
-# -------------------------------------------------
-# CLEAN COLUMN NAMES
-# -------------------------------------------------
+    # -------------------------------------------------
+    # CLEAN COLUMN NAMES
+    # -------------------------------------------------
 
-crops_df.columns = (
-    crops_df.columns
-    .str.strip()
-)
+    crops_df.columns = (
+        crops_df.columns
+        .str.strip()
+    )
 
-# -------------------------------------------------
-# REQUIRED COLUMNS
-# -------------------------------------------------
+    # -------------------------------------------------
+    # REQUIRED COLUMNS
+    # -------------------------------------------------
 
-if (
-    "Abrv" not in crops_df.columns
-    or "Grow Season" not in crops_df.columns
-):
-    return alerts
-
-# -------------------------------------------------
-# LOOP THROUGH BEDS
-# -------------------------------------------------
-
-for bed_id, bed_layout in current_layout.items():
-
-    # Make sure bed contains cell data
-    if not isinstance(
-        bed_layout,
-        dict
+    if (
+        "Abrv" not in crops_df.columns
+        or "Grow Season" not in crops_df.columns
     ):
-        continue
+        return alerts
 
     # -------------------------------------------------
-    # LOOP THROUGH CELLS IN THE BED
+    # LOOP THROUGH BEDS
     # -------------------------------------------------
 
-    for position, abrv in bed_layout.items():
+    for bed_id, bed_layout in current_layout.items():
 
-        # -------------------------------------------------
-        # SKIP EMPTY CELLS
-        # -------------------------------------------------
-
-        if (
-            not abrv
-            or abrv == "Empty"
+        # Make sure bed contains cell data
+        if not isinstance(
+            bed_layout,
+            dict
         ):
             continue
 
         # -------------------------------------------------
-        # NORMALIZE CROP ABBREVIATION
+        # LOOP THROUGH CELLS IN THE BED
         # -------------------------------------------------
 
-        abrv = str(
-            abrv
-        ).strip()
+        for position, abrv in bed_layout.items():
 
-        # -------------------------------------------------
-        # FIND CROP
-        # -------------------------------------------------
+            # -------------------------------------------------
+            # SKIP EMPTY CELLS
+            # -------------------------------------------------
 
-        crop_row = crops_df[
-            crops_df["Abrv"]
-            .astype(str)
-            .str.strip()
-            == abrv
-        ]
+            if (
+                not abrv
+                or abrv == "Empty"
+            ):
+                continue
 
-        # -------------------------------------------------
-        # SKIP UNKNOWN CROPS
-        # -------------------------------------------------
+            # -------------------------------------------------
+            # NORMALIZE CROP ABBREVIATION
+            # -------------------------------------------------
 
-        if crop_row.empty:
-            continue
+            abrv = str(
+                abrv
+            ).strip()
 
-        # -------------------------------------------------
-        # GET VALID SEASONS
-        # -------------------------------------------------
+            # -------------------------------------------------
+            # FIND CROP
+            # -------------------------------------------------
 
-        valid_seasons = str(
-            crop_row[
-                "Grow Season"
-            ].values[0]
-        ).strip()
+            crop_row = crops_df[
+                crops_df["Abrv"]
+                .astype(str)
+                .str.strip()
+                == abrv
+            ]
 
-        # -------------------------------------------------
-        # CHECK SEASONALITY
-        # -------------------------------------------------
+            # -------------------------------------------------
+            # SKIP UNKNOWN CROPS
+            # -------------------------------------------------
 
-        if (
-            selected_season
-            not in valid_seasons
-            and "Perennial"
-            not in valid_seasons
-            and "Full Season"
-            not in valid_seasons
-        ):
+            if crop_row.empty:
+                continue
 
-            row, column = position
+            # -------------------------------------------------
+            # GET VALID SEASONS
+            # -------------------------------------------------
 
-            alerts.append(
-                f"📅 **Seasonality Alert in "
-                f"{bed_id} "
-                f"(Row {row + 1}, "
-                f"Column {column + 1}):** "
-                f"{abrv} typically grows in "
-                f"'{valid_seasons}', but current "
-                f"layout is set to "
-                f"'{selected_season}'."
-            )
+            valid_seasons = str(
+                crop_row[
+                    "Grow Season"
+                ].values[0]
+            ).strip()
 
-return alerts
+            # -------------------------------------------------
+            # CHECK SEASONALITY
+            # -------------------------------------------------
+
+            if (
+                selected_season
+                not in valid_seasons
+                and "Perennial"
+                not in valid_seasons
+                and "Full Season"
+                not in valid_seasons
+            ):
+
+                row, column = position
+
+                alerts.append(
+                    f"📅 **Seasonality Alert in "
+                    f"{bed_id} "
+                    f"(Row {row + 1}, "
+                    f"Column {column + 1}):** "
+                    f"{abrv} typically grows in "
+                    f"'{valid_seasons}', but current "
+                    f"layout is set to "
+                    f"'{selected_season}'."
+                )
+
+    return alerts

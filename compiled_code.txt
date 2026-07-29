@@ -90,7 +90,9 @@ saved_layout = get_garden_layout(
 garden_state = render_garden_map(
     crop_options=crop_options,
     crop_map=crop_map,
-    saved_layout=saved_layout
+    saved_layout=saved_layout,
+    year=year,
+    season=season,
 )
 
 
@@ -253,28 +255,38 @@ FILE: src\crop_rules\nitrogen.py
 def check_nitrogen_rules(
     current_layout,
     crops_df,
-    past_layout=None
+    past_layout=None,
 ):
     """
-    Checks if a High Nitrogen crop is planted in a bed
-    where a High Nitrogen crop was planted the previous year.
+    Checks if a High Nitrogen crop is planted in the same
+    bed cell where a High Nitrogen crop was planted the
+    previous year.
     """
 
     alerts = []
 
-    # No historical layout or crop data
+    # -------------------------------------------------
+    # NO HISTORY OR CROP DATA
+    # -------------------------------------------------
+
     if (
         past_layout is None
         or crops_df.empty
     ):
         return alerts
 
-    # Clean column names
+    # -------------------------------------------------
+    # CLEAN COLUMN NAMES
+    # -------------------------------------------------
+
     crops_df.columns = (
         crops_df.columns.str.strip()
     )
 
-    # Find nitrogen-related column
+    # -------------------------------------------------
+    # FIND NITROGEN COLUMN
+    # -------------------------------------------------
+
     nitro_col = None
 
     for col in crops_df.columns:
@@ -288,7 +300,10 @@ def check_nitrogen_rules(
     if not nitro_col:
         return alerts
 
-    # Get all High Nitrogen crops
+    # -------------------------------------------------
+    # GET HIGH NITROGEN CROPS
+    # -------------------------------------------------
+
     high_n_crops = set(
         crops_df[
             crops_df[nitro_col]
@@ -302,42 +317,71 @@ def check_nitrogen_rules(
         .str.strip()
     )
 
+    # -------------------------------------------------
+    # COMPARE CURRENT YEAR TO PREVIOUS YEAR
+    # -------------------------------------------------
 
-    # Compare current year against previous year
-    for bed_id, current_abrv in current_layout.items():
+    for bed_id, current_bed in current_layout.items():
 
-        # Ignore empty current beds
-        if (
-            not current_abrv
-            or current_abrv == "Empty"
-        ):
-            continue
-
-        # Get previous year's crop
-        past_abrv = past_layout.get(
+        # Get previous year's bed
+        past_bed = past_layout.get(
             bed_id,
-            "Empty"
+            {}
         )
 
-        # Ignore empty previous beds
-        if (
-            not past_abrv
-            or past_abrv == "Empty"
+        # Make sure previous bed is a dictionary
+        if not isinstance(
+            past_bed,
+            dict
         ):
             continue
 
-        # Check BOTH crops
-        if (
-            current_abrv in high_n_crops
-            and past_abrv in high_n_crops
-        ):
+        # -------------------------------------------------
+        # CHECK EACH CELL
+        # -------------------------------------------------
 
-            alerts.append(
-                f"⚠️ **Crop Rotation Warning in {bed_id}:** "
-                f"Consecutive High Nitrogen crops "
-                f"({past_abrv} last year → "
-                f"{current_abrv} this year)."
+        for position, current_abrv in current_bed.items():
+
+            # Ignore empty current cells
+            if (
+                not current_abrv
+                or current_abrv == "Empty"
+            ):
+                continue
+
+            # Get previous year's crop
+            past_abrv = past_bed.get(
+                position,
+                "Empty"
             )
+
+            # Ignore empty previous cells
+            if (
+                not past_abrv
+                or past_abrv == "Empty"
+            ):
+                continue
+
+            # -------------------------------------------------
+            # CHECK BOTH CROPS
+            # -------------------------------------------------
+
+            if (
+                current_abrv in high_n_crops
+                and past_abrv in high_n_crops
+            ):
+
+                row, column = position
+
+                alerts.append(
+                    f"⚠️ **Crop Rotation Warning in "
+                    f"{bed_id} "
+                    f"(Row {row + 1}, "
+                    f"Column {column + 1}):** "
+                    f"Consecutive High Nitrogen crops "
+                    f"({past_abrv} last year → "
+                    f"{current_abrv} this year)."
+                )
 
     return alerts
 
@@ -348,114 +392,148 @@ FILE: src\crop_rules\rotation.py
 
 # src/crop_rules/rotation.py
 
-
 def check_crop_family_rules(
-    current_layout,
-    crops_df,
-    past_layout=None
+current_layout,
+crops_df,
+past_layout=None,
 ):
-    """
-    Checks if crops from the same crop family are planted
-    in the same bed in consecutive years.
 
-    Example:
 
-        Previous year: Pumpkin
-        Current year:  Zucchini
+alerts = []
 
-    Both are Cucurbits, so a rotation warning is generated.
-    """
+# -------------------------------------------------
+# NO HISTORICAL LAYOUT OR CROP DATA
+# -------------------------------------------------
 
-    alerts = []
+if (
+    past_layout is None
+    or crops_df.empty
+):
+    return alerts
 
-    # No historical layout or crop data
-    if (
-        past_layout is None
-        or crops_df.empty
-    ):
-        return alerts
+# -------------------------------------------------
+# CLEAN COLUMN NAMES
+# -------------------------------------------------
 
-    # Clean column names
-    crops_df.columns = (
-        crops_df.columns
-        .str.strip()
+crops_df.columns = (
+    crops_df.columns
+    .str.strip()
+)
+
+# -------------------------------------------------
+# REQUIRED COLUMNS
+# -------------------------------------------------
+
+if (
+    "Abrv" not in crops_df.columns
+    or "Crop Family" not in crops_df.columns
+):
+    return alerts
+
+# -------------------------------------------------
+# CREATE CROP FAMILY LOOKUP
+# -------------------------------------------------
+
+crop_families = {}
+
+for _, row in crops_df.iterrows():
+
+    abrv = (
+        str(row["Abrv"])
+        .strip()
+        .upper()
     )
 
-    # Make sure required columns exist
+    family = (
+        str(row["Crop Family"])
+        .strip()
+        .upper()
+    )
+
+    # Ignore missing crop abbreviations
     if (
-        "Abrv" not in crops_df.columns
-        or "Crop Family" not in crops_df.columns
+        not abrv
+        or abrv == "NAN"
     ):
-        return alerts
+        continue
 
-    # Create crop family lookup
-    crop_families = {}
+    # Ignore missing crop families
+    if (
+        not family
+        or family == "NAN"
+    ):
+        continue
 
-    for _, row in crops_df.iterrows():
+    crop_families[
+        abrv
+    ] = family
 
-        abrv = (
-            str(row["Abrv"])
-            .strip()
-            .upper()
-        )
+# -------------------------------------------------
+# COMPARE CURRENT YEAR TO PREVIOUS YEAR
+# -------------------------------------------------
 
-        family = (
-            str(row["Crop Family"])
-            .strip()
-            .upper()
-        )
+for bed_id, current_bed in current_layout.items():
 
-        # Ignore missing crop abbreviations
-        if not abrv:
-            continue
+    # Get previous year's bed
+    past_bed = past_layout.get(
+        bed_id,
+        {}
+    )
 
-        # Ignore missing crop families
-        if (
-            not family
-            or family == "NAN"
-        ):
-            continue
+    # Make sure previous bed is a dictionary
+    if not isinstance(
+        past_bed,
+        dict
+    ):
+        continue
 
-        crop_families[abrv] = family
+    # -------------------------------------------------
+    # CHECK EACH CELL
+    # -------------------------------------------------
 
-    # Compare current year against previous year
-    for bed_id, current_abrv in current_layout.items():
+    for position, current_abrv in current_bed.items():
 
-        # Normalize current crop abbreviation
+        # Normalize current crop
         current_crop = (
             str(current_abrv)
             .strip()
             .upper()
         )
 
-        # Ignore empty current beds
+        # Ignore empty current cells
         if (
             not current_crop
             or current_crop == "EMPTY"
         ):
             continue
 
-        # Get previous year's crop
-        past_abrv = past_layout.get(
-            bed_id,
+        # -------------------------------------------------
+        # GET PREVIOUS YEAR'S CROP
+        # -------------------------------------------------
+
+        past_abrv = past_bed.get(
+            position,
             "Empty"
         )
 
-        # Normalize previous crop abbreviation
+        # Normalize previous crop
         past_crop = (
             str(past_abrv)
             .strip()
             .upper()
         )
 
-        # Ignore empty previous beds
+        # Ignore empty previous cells
         if (
             not past_crop
             or past_crop == "EMPTY"
         ):
             continue
 
-        # Get crop families
+        # -------------------------------------------------
+        # GET CROP FAMILIES
+        # -------------------------------------------------
+
         current_family = crop_families.get(
             current_crop
         )
@@ -472,20 +550,29 @@ def check_crop_family_rules(
         ):
             continue
 
-        # Check if both crops belong to
-        # the same crop family
+        # -------------------------------------------------
+        # CHECK SAME CROP FAMILY
+        # -------------------------------------------------
+
         if current_family == past_family:
 
+            row, column = position
+
             alerts.append(
-                f"⚠️ **Crop Family Rotation Warning in {bed_id}:** "
+                f"⚠️ **Crop Family Rotation Warning "
+                f"in {bed_id} "
+                f"(Row {row + 1}, "
+                f"Column {column + 1}):** "
                 f"{past_abrv} last year → "
                 f"{current_abrv} this year. "
                 f"Both crops belong to the "
                 f"{current_family.title()} family. "
-                f"Consider rotating to a different crop family."
+                f"Consider rotating to a different "
+                f"crop family."
             )
 
-    return alerts
+return alerts
+
 
 
 ================================================================================
@@ -493,45 +580,125 @@ FILE: src\crop_rules\seasonality.py
 ================================================================================
 
 def check_seasonality(
-        current_layout, 
-        selected_season, 
-        crops_df
-    ):
-    """
-    Warns if a crop is placed in a season it doesn't support according to 'Grow Season'.
-    """
+current_layout,
+selected_season,
+crops_df,
+):
 
-    alerts = []
-    
-    for bed_id, abrv in current_layout.items():
+alerts = []
 
-        if abrv == "Empty" or not abrv:
-            continue
-            
-        crop_row = crops_df[
-            crops_df["Abrv"] == abrv
-        ]
-        
-        if not crop_row.empty:
+# -------------------------------------------------
+# CLEAN COLUMN NAMES
+# -------------------------------------------------
 
-            valid_seasons = str(crop_row["Grow Season"].values[0])
-            
-            # Check if selected season is within the crop's allowed seasons
-            if (
-                selected_season 
-                not in valid_seasons 
-                and "Perennial" 
-                not in valid_seasons 
-                and "Full Season" 
-                not in valid_seasons
-            ):
+crops_df.columns = (
+    crops_df.columns
+    .str.strip()
+)
 
+# -------------------------------------------------
+# REQUIRED COLUMNS
+# -------------------------------------------------
 
-                alerts.append(
-                    f"📅 **Seasonality Alert in {bed_id}:** {abrv} typically grows in "
-                    f"'{valid_seasons}', but current layout is set to '{selected_season}'."
-                )
+if (
+    "Abrv" not in crops_df.columns
+    or "Grow Season" not in crops_df.columns
+):
     return alerts
+
+# -------------------------------------------------
+# LOOP THROUGH BEDS
+# -------------------------------------------------
+
+for bed_id, bed_layout in current_layout.items():
+
+    # Make sure bed contains cell data
+    if not isinstance(
+        bed_layout,
+        dict
+    ):
+        continue
+
+    # -------------------------------------------------
+    # LOOP THROUGH CELLS IN THE BED
+    # -------------------------------------------------
+
+    for position, abrv in bed_layout.items():
+
+        # -------------------------------------------------
+        # SKIP EMPTY CELLS
+        # -------------------------------------------------
+
+        if (
+            not abrv
+            or abrv == "Empty"
+        ):
+            continue
+
+        # -------------------------------------------------
+        # NORMALIZE CROP ABBREVIATION
+        # -------------------------------------------------
+
+        abrv = str(
+            abrv
+        ).strip()
+
+        # -------------------------------------------------
+        # FIND CROP
+        # -------------------------------------------------
+
+        crop_row = crops_df[
+            crops_df["Abrv"]
+            .astype(str)
+            .str.strip()
+            == abrv
+        ]
+
+        # -------------------------------------------------
+        # SKIP UNKNOWN CROPS
+        # -------------------------------------------------
+
+        if crop_row.empty:
+            continue
+
+        # -------------------------------------------------
+        # GET VALID SEASONS
+        # -------------------------------------------------
+
+        valid_seasons = str(
+            crop_row[
+                "Grow Season"
+            ].values[0]
+        ).strip()
+
+        # -------------------------------------------------
+        # CHECK SEASONALITY
+        # -------------------------------------------------
+
+        if (
+            selected_season
+            not in valid_seasons
+            and "Perennial"
+            not in valid_seasons
+            and "Full Season"
+            not in valid_seasons
+        ):
+
+            row, column = position
+
+            alerts.append(
+                f"📅 **Seasonality Alert in "
+                f"{bed_id} "
+                f"(Row {row + 1}, "
+                f"Column {column + 1}):** "
+                f"{abrv} typically grows in "
+                f"'{valid_seasons}', but current "
+                f"layout is set to "
+                f"'{selected_season}'."
+            )
+
+return alerts
+
 
 
 ================================================================================
@@ -855,49 +1022,129 @@ def get_all_layouts():
 FILE: src\garden_layout.py
 ================================================================================
 
+# ============================================================
+# GARDEN LAYOUT
+# ============================================================
+
+
+# ============================================================
+# BED TYPES
+# ============================================================
 
 BED_TYPES = {
+
     "BR": {
         "name": "BR Bed",
         "columns": 2,
         "rows": 5,
     },
+
     "RB": {
         "name": "RB Bed",
         "columns": 3,
         "rows": 5,
     },
+
     "FR": {
         "name": "FR Bed",
         "columns": 2,
         "rows": 5,
     },
+
     "DRB": {
-        "name": "DRB",
+        "name": "DRB Bed",
         "columns": 3,
         "rows": 5,
     },
+
     "TOWER": {
         "name": "Tower",
         "columns": 2,
         "rows": 2,
     },
+
     "W": {
         "name": "Water",
         "columns": 1,
         "rows": 1,
     },
+
     "TREE": {
         "name": "Tree",
         "columns": 1,
         "rows": 1,
     },
+
     "T": {
         "name": "PLANTER",
         "columns": 2,
         "rows": 2,
     },
 }
+
+
+# ============================================================
+# PHYSICAL BEDS
+# ============================================================
+
+BEDS = {
+    # BR Beds
+    "BR1": {"type": "BR"},
+    "BR2": {"type": "BR"},
+    "BR3": {"type": "BR"},
+    "BR4": {"type": "BR"},
+
+    # RB Beds
+    "RB1": {"type": "RB"},
+    "RB2": {"type": "RB"},
+    "RB3": {"type": "RB"},
+
+    # FR Beds
+    "FR1": {"type": "FR"},
+    "FR2": {"type": "FR"},
+    "FR3": {"type": "FR"},
+    "FR4": {"type": "FR"},
+
+    # DRB Bed
+    "DRB": {"type": "DRB"},
+
+    # Planter Towers
+    "TOWER1": {"type": "TOWER"},
+    "TOWER2": {"type": "TOWER"},
+
+    # Plant Beds
+    "PLANT1": {"type": "T"},
+    "PLANT2": {"type": "T"},
+
+    # Static Objects
+    "W": {"type": "W"},
+    "TREE": {"type": "TREE"},
+}
+
+
+# ============================================================
+# PHYSICAL GARDEN MAP
+# ============================================================
+
+GARDEN_MAP = [
+    # BR Beds
+    [ None, "BR1", "BR2", "BR3", "BR4", None],
+
+    # Towers and Tree
+    ["TOWER1", None, "TREE", None, None],
+
+    # RB Beds
+    ["TOWER2", "RB1", "RB2", "RB3", None],
+
+    # Water
+    ["W", None, None, None, None],
+
+    # DRB and FR Beds
+    ["DRB", "FR1", "FR2", "FR3", "FR4"],
+
+    # Plant Beds
+    ["PLANT1", "PLANT2", None, None, None],
+]
 
 
 ================================================================================
@@ -986,146 +1233,144 @@ FILE: src\garden_ui\bed_editor.py
 import streamlit as st
 
 from src.garden_layout import (
-BEDS,
-BED_TYPES,
+    BEDS,
+    BED_TYPES,
 )
+
 
 def render_static_object(
-bed_id
+    bed_id
 ):
-"""
-Renders a non-planting object such as
-a tower, water station, or tree.
-"""
+    """
+    Renders a non-planting object such as
+    a tower, water station, or tree.
+    """
 
-```
-bed_type = BEDS[
-    bed_id
-]["type"]
+    bed_type = BEDS[
+        bed_id
+    ]["type"]
 
-name = BED_TYPES[
-    bed_type
-]["name"]
+    name = BED_TYPES[
+        bed_type
+    ]["name"]
 
-st.markdown(
-    f"**{name}**"
-)
+    st.markdown(
+        f"**{name}**"
+    )
 
-st.caption(
-    bed_id
-)
-```
+    st.caption(
+        bed_id
+    )
+
 
 def render_bed(
-bed_id,
-current_layout,
-crop_options,
-crop_map,
-saved_layout,
-year,
-season,
-):
-"""
-Renders the individual planting cells
-for a garden bed.
-
-```
-Returns the crop assignment for each cell.
-"""
-
-bed_type = BEDS[
-    bed_id
-]["type"]
-
-bed_info = BED_TYPES[
-    bed_type
-]
-
-rows = bed_info[
-    "rows"
-]
-
-columns = bed_info[
-    "columns"
-]
-
-bed_name = bed_info[
-    "name"
-]
-
-st.markdown(
-    f"**{bed_name}**"
-)
-
-st.caption(
-    bed_id
-)
-
-# Get saved cells for this bed
-saved_cells = saved_layout.get(
     bed_id,
-    {}
-)
+    current_layout,
+    crop_options,
+    crop_map,
+    saved_layout,
+    year,
+    season,
+):
+    """
+    Renders the individual planting cells
+    for a garden bed.
 
-# Initialize bed state
-bed_state = {}
+    Returns the crop assignment for each cell.
+    """
 
-# Create one Streamlit column per physical column
-grid_columns = st.columns(
-    columns
-)
+    bed_type = BEDS[
+        bed_id
+    ]["type"]
 
-# Render rows vertically
-for row in range(rows):
+    bed_info = BED_TYPES[
+        bed_type
+    ]
 
-    for column in range(columns):
+    rows = bed_info[
+        "rows"
+    ]
 
-        cell_position = (
-            row,
-            column
-        )
+    columns = bed_info[
+        "columns"
+    ]
 
-        saved_crop = saved_cells.get(
-            cell_position,
-            "Empty"
-        )
+    bed_name = bed_info[
+        "name"
+    ]
 
-        # Find the correct Streamlit column
-        cell_column = grid_columns[
-            column
-        ]
+    st.markdown(
+        f"**{bed_name}**"
+    )
 
-        with cell_column:
+    st.caption(
+        bed_id
+    )
 
-            selected_crop = st.selectbox(
-                f"{row + 1},{column + 1}",
-                crop_options,
-                index=(
-                    crop_options.index(
-                        saved_crop
-                    )
-                    if saved_crop
-                    in crop_options
-                    else 0
-                ),
-                key=(
-                    f"{year}_"
-                    f"{season}_"
-                    f"{bed_id}_"
-                    f"{row}_"
-                    f"{column}"
-                ),
-                label_visibility="collapsed",
+    # Get saved cells for this bed
+    saved_cells = saved_layout.get(
+        bed_id,
+        {}
+    )
+
+    # Initialize bed state
+    bed_state = {}
+
+    # Create one Streamlit column per physical column
+    grid_columns = st.columns(
+        columns
+    )
+
+    # Render rows vertically
+    for row in range(rows):
+
+        for column in range(columns):
+
+            cell_position = (
+                row,
+                column
             )
 
-            bed_state[
-                cell_position
-            ] = selected_crop
+            saved_crop = saved_cells.get(
+                cell_position,
+                "Empty"
+            )
 
-current_layout[
-    bed_id
-] = bed_state
-```
+            # Find the correct Streamlit column
+            cell_column = grid_columns[
+                column
+            ]
+
+            with cell_column:
+
+                selected_crop = st.selectbox(
+                    f"{row + 1},{column + 1}",
+                    crop_options,
+                    index=(
+                        crop_options.index(
+                            saved_crop
+                        )
+                        if saved_crop
+                        in crop_options
+                        else 0
+                    ),
+                    key=(
+                        f"{year}_"
+                        f"{season}_"
+                        f"{bed_id}_"
+                        f"{row}_"
+                        f"{column}"
+                    ),
+                    label_visibility="collapsed",
+                )
+
+                bed_state[
+                    cell_position
+                ] = selected_crop
+
+    current_layout[
+        bed_id
+    ] = bed_state
 
 
 
@@ -1136,132 +1381,128 @@ FILE: src\garden_ui\garden_renderer.py
 import streamlit as st
 
 from src.garden_layout import (
-BEDS,
-GARDEN_MAP,
+    BEDS,
+    GARDEN_MAP,
 )
 
 from src.garden_ui.bed_editor import (
-render_bed,
-render_static_object,
+    render_bed,
+    render_static_object,
 )
+
 
 def render_garden_map(
-crop_options,
-crop_map,
-saved_layout,
-year,
-season,
+    crop_options,
+    crop_map,
+    saved_layout,
+    year,
+    season,
 ):
-"""
-Renders the complete physical garden map.
+    """
+    Renders the complete physical garden map.
 
-```
-Returns:
-
-    {
-        "BR1": {
-            (0, 0): "Pk",
-            (0, 1): "Br",
+    Returns:
+        {
+            "BR1": {
+                (0, 0): "Pk",
+                (0, 1): "Br",
+            }
         }
-    }
-"""
+    """
 
-st.header(
-    f"{season} {year} Garden"
-)
+    # -----------------------------------------------------
+    # GARDEN PLANNER HEADER
+    # -----------------------------------------------------
 
-# -----------------------------------------------------
-# CURRENT GARDEN STATE
-# -----------------------------------------------------
+    st.title("Garden Planner🌱")
 
-current_layout = {}
-
-
-# -----------------------------------------------------
-# RENDER PHYSICAL MAP
-# -----------------------------------------------------
-
-for map_row in GARDEN_MAP:
-
-    map_columns = st.columns(
-        len(map_row)
+    st.header(
+        f"{season} {year} Garden"
     )
 
-    for map_column, bed_id in zip(
-        map_columns,
-        map_row
-    ):
+    # -----------------------------------------------------
+    # CURRENT GARDEN STATE
+    # -----------------------------------------------------
 
-        with map_column:
+    current_layout = {}
 
-            # -----------------------------------------
-            # EMPTY MAP SPACE
-            # -----------------------------------------
+    # -----------------------------------------------------
+    # RENDER PHYSICAL MAP
+    # -----------------------------------------------------
 
-            if not bed_id:
+    for map_row in GARDEN_MAP:
 
-                st.write("")
+        map_columns = st.columns(
+            len(map_row)
+        )
 
-                continue
+        for map_column, bed_id in zip(
+            map_columns,
+            map_row
+        ):
 
+            with map_column:
 
-            # -----------------------------------------
-            # CHECK BED EXISTS
-            # -----------------------------------------
+                # -----------------------------------------
+                # EMPTY MAP SPACE
+                # -----------------------------------------
 
-            if bed_id not in BEDS:
+                if not bed_id:
 
-                st.warning(
-                    f"Unknown bed: {bed_id}"
-                )
+                    st.write("")
 
-                continue
+                    continue
 
+                # -----------------------------------------
+                # CHECK BED EXISTS
+                # -----------------------------------------
 
-            # -----------------------------------------
-            # GET BED TYPE
-            # -----------------------------------------
+                if bed_id not in BEDS:
 
-            bed_type = BEDS[
-                bed_id
-            ]["type"]
+                    st.warning(
+                        f"Unknown bed: {bed_id}"
+                    )
 
+                    continue
 
-            # -----------------------------------------
-            # STATIC OBJECTS
-            # -----------------------------------------
+                # -----------------------------------------
+                # GET BED TYPE
+                # -----------------------------------------
 
-            if bed_type in {
-                "TOWER",
-                "W",
-                "TREE",
-            }:
-
-                render_static_object(
+                bed_type = BEDS[
                     bed_id
+                ]["type"]
+
+                # -----------------------------------------
+                # STATIC OBJECTS
+                # -----------------------------------------
+
+                if bed_type in {
+                    "W",
+                    "TREE",
+                }:
+
+                    render_static_object(
+                        bed_id
+                    )
+
+                    continue
+
+                # -----------------------------------------
+                # PLANTING BED
+                # -----------------------------------------
+
+                render_bed(
+                    bed_id=bed_id,
+                    current_layout=current_layout,
+                    crop_options=crop_options,
+                    crop_map=crop_map,
+                    saved_layout=saved_layout,
+                    year=year,
+                    season=season,
                 )
 
-                continue
-
-
-            # -----------------------------------------
-            # PLANTING BED
-            # -----------------------------------------
-
-            render_bed(
-                bed_id=bed_id,
-                current_layout=current_layout,
-                crop_options=crop_options,
-                crop_map=crop_map,
-                saved_layout=saved_layout,
-                year=year,
-                season=season,
-            )
-
-
-return current_layout
-```
-
+    return current_layout
 
 
 ================================================================================
