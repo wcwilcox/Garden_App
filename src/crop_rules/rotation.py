@@ -1,113 +1,147 @@
 # src/crop_rules/rotation.py
 
-
 def check_crop_family_rules(
-    current_layout,
-    crops_df,
-    past_layout=None
+current_layout,
+crops_df,
+past_layout=None,
 ):
-    """
-    Checks if crops from the same crop family are planted
-    in the same bed in consecutive years.
 
-    Example:
 
-        Previous year: Pumpkin
-        Current year:  Zucchini
+alerts = []
 
-    Both are Cucurbits, so a rotation warning is generated.
-    """
+# -------------------------------------------------
+# NO HISTORICAL LAYOUT OR CROP DATA
+# -------------------------------------------------
 
-    alerts = []
+if (
+    past_layout is None
+    or crops_df.empty
+):
+    return alerts
 
-    # No historical layout or crop data
-    if (
-        past_layout is None
-        or crops_df.empty
-    ):
-        return alerts
+# -------------------------------------------------
+# CLEAN COLUMN NAMES
+# -------------------------------------------------
 
-    # Clean column names
-    crops_df.columns = (
-        crops_df.columns
-        .str.strip()
+crops_df.columns = (
+    crops_df.columns
+    .str.strip()
+)
+
+# -------------------------------------------------
+# REQUIRED COLUMNS
+# -------------------------------------------------
+
+if (
+    "Abrv" not in crops_df.columns
+    or "Crop Family" not in crops_df.columns
+):
+    return alerts
+
+# -------------------------------------------------
+# CREATE CROP FAMILY LOOKUP
+# -------------------------------------------------
+
+crop_families = {}
+
+for _, row in crops_df.iterrows():
+
+    abrv = (
+        str(row["Abrv"])
+        .strip()
+        .upper()
     )
 
-    # Make sure required columns exist
+    family = (
+        str(row["Crop Family"])
+        .strip()
+        .upper()
+    )
+
+    # Ignore missing crop abbreviations
     if (
-        "Abrv" not in crops_df.columns
-        or "Crop Family" not in crops_df.columns
+        not abrv
+        or abrv == "NAN"
     ):
-        return alerts
+        continue
 
-    # Create crop family lookup
-    crop_families = {}
+    # Ignore missing crop families
+    if (
+        not family
+        or family == "NAN"
+    ):
+        continue
 
-    for _, row in crops_df.iterrows():
+    crop_families[
+        abrv
+    ] = family
 
-        abrv = (
-            str(row["Abrv"])
-            .strip()
-            .upper()
-        )
+# -------------------------------------------------
+# COMPARE CURRENT YEAR TO PREVIOUS YEAR
+# -------------------------------------------------
 
-        family = (
-            str(row["Crop Family"])
-            .strip()
-            .upper()
-        )
+for bed_id, current_bed in current_layout.items():
 
-        # Ignore missing crop abbreviations
-        if not abrv:
-            continue
+    # Get previous year's bed
+    past_bed = past_layout.get(
+        bed_id,
+        {}
+    )
 
-        # Ignore missing crop families
-        if (
-            not family
-            or family == "NAN"
-        ):
-            continue
+    # Make sure previous bed is a dictionary
+    if not isinstance(
+        past_bed,
+        dict
+    ):
+        continue
 
-        crop_families[abrv] = family
+    # -------------------------------------------------
+    # CHECK EACH CELL
+    # -------------------------------------------------
 
-    # Compare current year against previous year
-    for bed_id, current_abrv in current_layout.items():
+    for position, current_abrv in current_bed.items():
 
-        # Normalize current crop abbreviation
+        # Normalize current crop
         current_crop = (
             str(current_abrv)
             .strip()
             .upper()
         )
 
-        # Ignore empty current beds
+        # Ignore empty current cells
         if (
             not current_crop
             or current_crop == "EMPTY"
         ):
             continue
 
-        # Get previous year's crop
-        past_abrv = past_layout.get(
-            bed_id,
+        # -------------------------------------------------
+        # GET PREVIOUS YEAR'S CROP
+        # -------------------------------------------------
+
+        past_abrv = past_bed.get(
+            position,
             "Empty"
         )
 
-        # Normalize previous crop abbreviation
+        # Normalize previous crop
         past_crop = (
             str(past_abrv)
             .strip()
             .upper()
         )
 
-        # Ignore empty previous beds
+        # Ignore empty previous cells
         if (
             not past_crop
             or past_crop == "EMPTY"
         ):
             continue
 
-        # Get crop families
+        # -------------------------------------------------
+        # GET CROP FAMILIES
+        # -------------------------------------------------
+
         current_family = crop_families.get(
             current_crop
         )
@@ -124,17 +158,25 @@ def check_crop_family_rules(
         ):
             continue
 
-        # Check if both crops belong to
-        # the same crop family
+        # -------------------------------------------------
+        # CHECK SAME CROP FAMILY
+        # -------------------------------------------------
+
         if current_family == past_family:
 
+            row, column = position
+
             alerts.append(
-                f"⚠️ **Crop Family Rotation Warning in {bed_id}:** "
+                f"⚠️ **Crop Family Rotation Warning "
+                f"in {bed_id} "
+                f"(Row {row + 1}, "
+                f"Column {column + 1}):** "
                 f"{past_abrv} last year → "
                 f"{current_abrv} this year. "
                 f"Both crops belong to the "
                 f"{current_family.title()} family. "
-                f"Consider rotating to a different crop family."
+                f"Consider rotating to a different "
+                f"crop family."
             )
 
-    return alerts
+return alerts

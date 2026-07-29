@@ -1,28 +1,38 @@
 def check_nitrogen_rules(
     current_layout,
     crops_df,
-    past_layout=None
+    past_layout=None,
 ):
     """
-    Checks if a High Nitrogen crop is planted in a bed
-    where a High Nitrogen crop was planted the previous year.
+    Checks if a High Nitrogen crop is planted in the same
+    bed cell where a High Nitrogen crop was planted the
+    previous year.
     """
 
     alerts = []
 
-    # No historical layout or crop data
+    # -------------------------------------------------
+    # NO HISTORY OR CROP DATA
+    # -------------------------------------------------
+
     if (
         past_layout is None
         or crops_df.empty
     ):
         return alerts
 
-    # Clean column names
+    # -------------------------------------------------
+    # CLEAN COLUMN NAMES
+    # -------------------------------------------------
+
     crops_df.columns = (
         crops_df.columns.str.strip()
     )
 
-    # Find nitrogen-related column
+    # -------------------------------------------------
+    # FIND NITROGEN COLUMN
+    # -------------------------------------------------
+
     nitro_col = None
 
     for col in crops_df.columns:
@@ -36,7 +46,10 @@ def check_nitrogen_rules(
     if not nitro_col:
         return alerts
 
-    # Get all High Nitrogen crops
+    # -------------------------------------------------
+    # GET HIGH NITROGEN CROPS
+    # -------------------------------------------------
+
     high_n_crops = set(
         crops_df[
             crops_df[nitro_col]
@@ -50,41 +63,70 @@ def check_nitrogen_rules(
         .str.strip()
     )
 
+    # -------------------------------------------------
+    # COMPARE CURRENT YEAR TO PREVIOUS YEAR
+    # -------------------------------------------------
 
-    # Compare current year against previous year
-    for bed_id, current_abrv in current_layout.items():
+    for bed_id, current_bed in current_layout.items():
 
-        # Ignore empty current beds
-        if (
-            not current_abrv
-            or current_abrv == "Empty"
-        ):
-            continue
-
-        # Get previous year's crop
-        past_abrv = past_layout.get(
+        # Get previous year's bed
+        past_bed = past_layout.get(
             bed_id,
-            "Empty"
+            {}
         )
 
-        # Ignore empty previous beds
-        if (
-            not past_abrv
-            or past_abrv == "Empty"
+        # Make sure previous bed is a dictionary
+        if not isinstance(
+            past_bed,
+            dict
         ):
             continue
 
-        # Check BOTH crops
-        if (
-            current_abrv in high_n_crops
-            and past_abrv in high_n_crops
-        ):
+        # -------------------------------------------------
+        # CHECK EACH CELL
+        # -------------------------------------------------
 
-            alerts.append(
-                f"⚠️ **Crop Rotation Warning in {bed_id}:** "
-                f"Consecutive High Nitrogen crops "
-                f"({past_abrv} last year → "
-                f"{current_abrv} this year)."
+        for position, current_abrv in current_bed.items():
+
+            # Ignore empty current cells
+            if (
+                not current_abrv
+                or current_abrv == "Empty"
+            ):
+                continue
+
+            # Get previous year's crop
+            past_abrv = past_bed.get(
+                position,
+                "Empty"
             )
+
+            # Ignore empty previous cells
+            if (
+                not past_abrv
+                or past_abrv == "Empty"
+            ):
+                continue
+
+            # -------------------------------------------------
+            # CHECK BOTH CROPS
+            # -------------------------------------------------
+
+            if (
+                current_abrv in high_n_crops
+                and past_abrv in high_n_crops
+            ):
+
+                row, column = position
+
+                alerts.append(
+                    f"⚠️ **Crop Rotation Warning in "
+                    f"{bed_id} "
+                    f"(Row {row + 1}, "
+                    f"Column {column + 1}):** "
+                    f"Consecutive High Nitrogen crops "
+                    f"({past_abrv} last year → "
+                    f"{current_abrv} this year)."
+                )
 
     return alerts
